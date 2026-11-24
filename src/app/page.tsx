@@ -1,20 +1,17 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { PAGE_ASSETS, BG_ASSETS } from "@/lib/assetPaths";
 import {
-  BackgroundTheme,
-  FormatRatio,
-  PanelShape,
-  FORMAT_DIMENSIONS,
-  LOCKED_THEME_OPACITY,
+  GlassShape,
+  GlassTheme,
   renderStandaloneGlassPanel,
   renderRefractedGlassPatch,
   generateStandaloneGlassSvg,
   generateCompositedGlassSvg,
 } from "@/lib/liquidGlassEngine";
 
-type AppScreen =
+type ScreenId =
   | "home"
   | "opt1-bg-select"
   | "opt1-imagery-select"
@@ -24,15 +21,28 @@ type AppScreen =
   | "opt3-bg-select"
   | "opt3-sheet";
 
-interface StickerCategory {
+type FormatRatio = "1:1" | "4:5" | "9:16" | "16:9";
+
+const FORMAT_DIMENSIONS: Record<FormatRatio, { width: number; height: number }> = {
+  "1:1": { width: 1080, height: 1080 },
+  "4:5": { width: 1080, height: 1350 },
+  "9:16": { width: 1080, height: 1920 },
+  "16:9": { width: 1920, height: 1080 },
+};
+
+const LOCKED_THEME_OPACITY: Record<GlassTheme, number> = {
+  imagery: 35,
+  grey1200: 40,
+  white: 80,
+};
+
+const STICKER_CATEGORIES: {
   id: string;
   title: string;
   count: number;
-  shape: PanelShape;
+  shape: GlassShape;
   sizes: [number, number][];
-}
-
-const STICKER_CATEGORIES: StickerCategory[] = [
+}[] = [
   {
     id: "squares",
     title: "Square Text Panels",
@@ -91,35 +101,193 @@ const STICKER_CATEGORIES: StickerCategory[] = [
   },
 ];
 
-const IMAGERY_THUMB_ORDER = [1, 4, 3, 2] as const;
+function StickerCard({
+  width,
+  height,
+  shape,
+  theme,
+  isOpen,
+  onToggleMenu,
+  onExportPng,
+  onExportSvg,
+}: {
+  width: number;
+  height: number;
+  shape: GlassShape;
+  theme: GlassTheme;
+  isOpen: boolean;
+  onToggleMenu: (next: boolean) => void;
+  onExportPng: (canvas: HTMLCanvasElement, sizeStr: string, shape: GlassShape) => void;
+  onExportSvg: (svgStr: string, sizeStr: string, shape: GlassShape) => void;
+}) {
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const lockedOpacity = LOCKED_THEME_OPACITY[theme] / 100;
 
-export default function LiquidGlassGeneratorApp() {
-  const [screen, setScreen] = useState<AppScreen>("home");
-  const [theme, setTheme] = useState<BackgroundTheme>("imagery");
+  useEffect(() => {
+    setPreviewUrl("");
+    const el = cardRef.current;
+    if (!el) return;
+
+    let cancelled = false;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && !cancelled) {
+          observer.disconnect();
+          const maxPreviewDim = 220;
+          const scale = Math.min(1, maxPreviewDim / Math.max(width, height));
+          const pw = Math.max(20, Math.round(width * scale));
+          const ph = Math.max(20, Math.round(height * scale));
+          const scaledRadius = Math.max(4, 20 * scale);
+          const thumbCanvas = renderStandaloneGlassPanel({
+            width: pw,
+            height: ph,
+            shape,
+            theme,
+            frostOpacity: lockedOpacity,
+            customRadius: scaledRadius,
+          });
+          if (!cancelled) {
+            setPreviewUrl(thumbCanvas.toDataURL("image/png"));
+          }
+        }
+      },
+      { rootMargin: "200px" }
+    );
+    observer.observe(el);
+    return () => {
+      cancelled = true;
+      observer.disconnect();
+    };
+  }, [width, height, shape, theme, lockedOpacity]);
+
+  const handleChoosePng = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isGenerating) return;
+    setIsGenerating(true);
+    requestAnimationFrame(() => {
+      const fullCanvas = renderStandaloneGlassPanel({
+        width,
+        height,
+        shape,
+        theme,
+        frostOpacity: lockedOpacity,
+      });
+      onExportPng(fullCanvas, `${width}x${height}`, shape);
+      setIsGenerating(false);
+      onToggleMenu(false);
+    });
+  };
+
+  const handleChooseSvg = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const svgStr = generateStandaloneGlassSvg({
+      width,
+      height,
+      shape,
+      theme,
+      frostOpacity: lockedOpacity,
+    });
+    onExportSvg(svgStr, `${width}x${height}`, shape);
+    onToggleMenu(false);
+  };
+
+  return (
+    <div
+      ref={cardRef}
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggleMenu(!isOpen);
+      }}
+      className={`relative group flex flex-col items-end justify-between gap-2 p-3.5 rounded-xl border transition cursor-pointer w-full ${
+        theme === "white"
+          ? "border-neutral-200/80 hover:border-neutral-400 bg-white/60 hover:bg-white"
+          : "border-white/10 hover:border-white/25 bg-white/[0.02] hover:bg-white/[0.06]"
+      } ${isOpen ? "ring-2 ring-blue-500/70" : ""}`}
+    >
+      <div className="relative w-full h-28 flex items-center justify-center overflow-hidden p-1">
+        {previewUrl ? (
+          <img
+            src={previewUrl}
+            alt={`${width}px X ${height}px`}
+            className={`max-w-full max-h-full object-contain transition-transform ${
+              isOpen ? "scale-[0.98] opacity-40" : "group-hover:scale-[1.03]"
+            }`}
+          />
+        ) : (
+          <div className="w-16 h-10 rounded-lg bg-neutral-400/10 animate-pulse" />
+        )}
+
+        {isOpen && (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="absolute inset-0 z-20 flex items-center justify-center p-2"
+          >
+            <div className="w-40 rounded-xl bg-white text-[#121317] shadow-xl border border-neutral-200 overflow-hidden flex flex-col divide-y divide-neutral-100">
+              <button
+                type="button"
+                onClick={handleChoosePng}
+                className="w-full px-3.5 py-2.5 text-xs font-semibold text-left hover:bg-neutral-100 flex items-center justify-between transition cursor-pointer"
+              >
+                <span>{isGenerating ? "Exporting..." : "Export .png"}</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleChooseSvg}
+                className="w-full px-3.5 py-2.5 text-xs font-semibold text-left hover:bg-neutral-100 flex items-center justify-between transition cursor-pointer"
+              >
+                <span>Export .svg</span>
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <span
+        className={`text-[11px] font-medium flex items-center gap-1.5 ${
+          theme === "white" ? "text-neutral-700" : "text-neutral-300"
+        }`}
+      >
+        {`${width}px X ${height}px`}
+      </span>
+    </div>
+  );
+}
+
+export default function Page() {
+  const [screen, setScreen] = useState<ScreenId>("home");
+  const [theme, setTheme] = useState<GlassTheme>("imagery");
   const [imageryOption, setImageryOption] = useState<number>(1);
   const [format, setFormat] = useState<FormatRatio>("1:1");
-  const [shape, setShape] = useState<PanelShape>("text-panel");
-  const [widthInput, setWidthInput] = useState<string>("420");
-  const [heightInput, setHeightInput] = useState<string>("180");
-  const [opacitySlider, setOpacitySlider] = useState<number>(35);
-  const [activeStickerFilter, setActiveStickerFilter] = useState<string>("all");
+  const [shape, setShape] = useState<GlassShape>("text-panel");
+  const [widthInput, setWidthInput] = useState("420");
+  const [heightInput, setHeightInput] = useState("180");
+  const [opacitySlider, setOpacitySlider] = useState(35);
+  const [activeStickerFilter, setActiveStickerFilter] = useState("all");
   const [openStickerMenuKey, setOpenStickerMenuKey] = useState<string | null>(null);
 
-  const [panelPos, setPanelPos] = useState<{ x: number; y: number }>({ x: 180, y: 180 });
-  const [isDragging, setIsDragging] = useState<boolean>(false);
-  const dragOffset = useRef<{ dx: number; dy: number }>({ dx: 0, dy: 0 });
+  const [panelPos, setPanelPos] = useState({ x: 330, y: 450 });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragOffset = useRef({ dx: 0, dy: 0 });
 
-  const [uploadedBgUrl, setUploadedBgUrl] = useState<string | null>(null);
-  const [uploadedBgDims, setUploadedBgDims] = useState<{ width: number; height: number }>({
-    width: 1920,
-    height: 1080,
-  });
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [holdingBgImg, setHoldingBgImg] = useState<HTMLImageElement | null>(null);
+  const [uploadedBgImg, setUploadedBgImg] = useState<HTMLImageElement | null>(null);
+  const [uploadedBgDims, setUploadedBgDims] = useState({ width: 1920, height: 1080 });
+  const [toastMsg, setToastMsg] = useState("");
 
-  const [loadedBgImg, setLoadedBgImg] = useState<HTMLImageElement | null>(null);
-  const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const previewCanvasRef = useRef<HTMLCanvasElement>(null);
 
-  const selectThemeAndDefaultOpacity = (nextTheme: BackgroundTheme) => {
+  const stageDims =
+    screen === "opt2-workspace" ? uploadedBgDims : FORMAT_DIMENSIONS[format];
+
+  const parsedW = Math.max(0, parseInt(widthInput || "0", 10) || 0);
+  const parsedH =
+    shape === "circle" ? parsedW : Math.max(0, parseInt(heightInput || "0", 10) || 0);
+  const hasValidSize = parsedW >= 24 && parsedH >= 24;
+
+  const selectThemeAndDefaultOpacity = (nextTheme: GlassTheme) => {
     setTheme(nextTheme);
     setOpacitySlider(LOCKED_THEME_OPACITY[nextTheme]);
   };
@@ -130,80 +298,51 @@ export default function LiquidGlassGeneratorApp() {
     return () => window.removeEventListener("click", closeMenus);
   }, []);
 
-  const getOption1BgUrl = useCallback(() => {
-    if (theme === "white") return BG_ASSETS[format]?.white || "";
-    if (theme === "grey1200") return BG_ASSETS[format]?.grey1200 || "";
-    return BG_ASSETS[format]?.imagery?.[imageryOption] || "";
-  }, [format, theme, imageryOption]);
-
-  const stageDims =
-    screen === "opt2-workspace" ? uploadedBgDims : FORMAT_DIMENSIONS[format];
-
-  const parsedW = Math.max(0, parseInt(widthInput || "0", 10) || 0);
-  const parsedH = shape === "circle" ? parsedW : Math.max(0, parseInt(heightInput || "0", 10) || 0);
-  const hasValidSize = parsedW >= 24 && parsedH >= 24;
-
   useEffect(() => {
-    let activeSrc: string | null = null;
-    if (screen === "opt1-workspace") {
-      activeSrc = getOption1BgUrl();
-    } else if (screen === "opt2-workspace" && uploadedBgUrl) {
-      activeSrc = uploadedBgUrl;
-    }
-    if (!activeSrc) {
-      setLoadedBgImg(null);
-      return;
-    }
+    if (screen !== "opt1-workspace") return;
+    const ratioAssets = BG_ASSETS[format];
+    if (!ratioAssets) return;
+    const src =
+      theme === "white"
+        ? ratioAssets.white
+        : theme === "grey1200"
+        ? ratioAssets.grey1200
+        : ratioAssets.imagery?.[imageryOption] || ratioAssets.imagery?.[1];
+    if (!src) return;
+
+    let cancelled = false;
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.onload = () => {
-      setLoadedBgImg(img);
-      const targetW = screen === "opt2-workspace" ? img.naturalWidth : FORMAT_DIMENSIONS[format].width;
-      const targetH = screen === "opt2-workspace" ? img.naturalHeight : FORMAT_DIMENSIONS[format].height;
+      if (cancelled) return;
+      setHoldingBgImg(img);
       setPanelPos({
-        x: Math.max(0, Math.round((targetW - Math.max(60, parsedW)) / 2)),
-        y: Math.max(0, Math.round((targetH - Math.max(60, parsedH)) / 2)),
+        x: Math.max(20, Math.round((FORMAT_DIMENSIONS[format].width - Math.max(80, parsedW)) / 2)),
+        y: Math.max(20, Math.round((FORMAT_DIMENSIONS[format].height - Math.max(80, parsedH)) / 2)),
       });
     };
-    img.src = activeSrc;
-  }, [screen, getOption1BgUrl, uploadedBgUrl, format]);
+    img.src = src;
+    return () => {
+      cancelled = true;
+    };
+  }, [screen, format, theme, imageryOption]);
 
-  const detectImageTheme = (img: HTMLImageElement): BackgroundTheme => {
-    const sampleCanvas = document.createElement("canvas");
-    sampleCanvas.width = 32;
-    sampleCanvas.height = 32;
-    const sCtx = sampleCanvas.getContext("2d");
-    if (!sCtx) return "imagery";
-    sCtx.drawImage(img, 0, 0, 32, 32);
-    const d = sCtx.getImageData(0, 0, 32, 32).data;
-    let brightSum = 0;
-    let nearWhiteCount = 0;
-    for (let i = 0; i < d.length; i += 4) {
-      brightSum += 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-      if (d[i] > 242 && d[i + 1] > 242 && d[i + 2] > 242) nearWhiteCount++;
-    }
-    const avgLum = brightSum / (32 * 32);
-    if (nearWhiteCount > 32 * 32 * 0.55) return "white";
-    if (avgLum < 45) return "grey1200";
-    return "imagery";
-  };
-
-  useEffect(() => {
+  const drawWorkspace = useCallback(() => {
     const canvas = previewCanvasRef.current;
-    if (!canvas || !loadedBgImg) return;
-    if (screen !== "opt1-workspace" && screen !== "opt2-workspace") return;
+    if (!canvas) return;
+    const bgSource = screen === "opt2-workspace" ? uploadedBgImg : holdingBgImg;
+    if (!bgSource) return;
 
     canvas.width = stageDims.width;
     canvas.height = stageDims.height;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-
     ctx.clearRect(0, 0, stageDims.width, stageDims.height);
-    ctx.drawImage(loadedBgImg, 0, 0, stageDims.width, stageDims.height);
+    ctx.drawImage(bgSource, 0, 0, stageDims.width, stageDims.height);
 
     if (hasValidSize) {
       const patch = renderRefractedGlassPatch(
-        loadedBgImg,
+        bgSource,
         stageDims.width,
         stageDims.height,
         panelPos.x,
@@ -218,7 +357,25 @@ export default function LiquidGlassGeneratorApp() {
       );
       ctx.drawImage(patch, Math.round(panelPos.x), Math.round(panelPos.y));
     }
-  }, [screen, loadedBgImg, stageDims, hasValidSize, parsedW, parsedH, panelPos, shape, theme, opacitySlider]);
+  }, [
+    screen,
+    uploadedBgImg,
+    holdingBgImg,
+    stageDims,
+    hasValidSize,
+    parsedW,
+    parsedH,
+    panelPos,
+    shape,
+    theme,
+    opacitySlider,
+  ]);
+
+  useEffect(() => {
+    if (screen === "opt1-workspace" || screen === "opt2-workspace") {
+      drawWorkspace();
+    }
+  }, [screen, drawWorkspace]);
 
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!hasValidSize || !previewCanvasRef.current) return;
@@ -255,8 +412,14 @@ export default function LiquidGlassGeneratorApp() {
     const curX = (e.clientX - rect.left) * scaleX;
     const curY = (e.clientY - rect.top) * scaleY;
 
-    const nx = Math.max(-parsedW * 0.25, Math.min(stageDims.width - parsedW * 0.75, curX - dragOffset.current.dx));
-    const ny = Math.max(-parsedH * 0.25, Math.min(stageDims.height - parsedH * 0.75, curY - dragOffset.current.dy));
+    const nx = Math.max(
+      -parsedW * 0.25,
+      Math.min(stageDims.width - parsedW * 0.75, curX - dragOffset.current.dx)
+    );
+    const ny = Math.max(
+      -parsedH * 0.25,
+      Math.min(stageDims.height - parsedH * 0.75, curY - dragOffset.current.dy)
+    );
     setPanelPos({ x: nx, y: ny });
   };
 
@@ -267,7 +430,7 @@ export default function LiquidGlassGeneratorApp() {
     }
   };
 
-  const triggerCanvasDownload = (canvas: HTMLCanvasElement, filename: string) => {
+  const downloadCanvas = (canvas: HTMLCanvasElement, filename: string) => {
     canvas.toBlob((blob) => {
       if (!blob) return;
       const url = URL.createObjectURL(blob);
@@ -278,10 +441,12 @@ export default function LiquidGlassGeneratorApp() {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+      setToastMsg(`Downloaded ${filename}`);
+      setTimeout(() => setToastMsg(""), 2800);
     }, "image/png");
   };
 
-  const triggerSvgDownload = (svgContent: string, filename: string) => {
+  const downloadSvg = (svgContent: string, filename: string) => {
     const blob = new Blob([svgContent], { type: "image/svg+xml;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -291,6 +456,8 @@ export default function LiquidGlassGeneratorApp() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+    setToastMsg(`Downloaded ${filename}`);
+    setTimeout(() => setToastMsg(""), 2800);
   };
 
   const handleExportPng = () => {
@@ -303,15 +470,16 @@ export default function LiquidGlassGeneratorApp() {
         theme,
         frostOpacity: opacitySlider / 100,
       });
-      triggerCanvasDownload(isolated, `liquid-glass-${shape}-${theme}-${parsedW}x${parsedH}.png`);
-    } else if (screen === "opt2-workspace" && loadedBgImg) {
+      downloadCanvas(isolated, `glass-${shape}-${theme}-${parsedW}x${parsedH}.png`);
+    } else if (screen === "opt2-workspace" && uploadedBgImg) {
       const out = document.createElement("canvas");
       out.width = uploadedBgDims.width;
       out.height = uploadedBgDims.height;
-      const ctx = out.getContext("2d")!;
-      ctx.drawImage(loadedBgImg, 0, 0, uploadedBgDims.width, uploadedBgDims.height);
-      const refracted = renderRefractedGlassPatch(
-        loadedBgImg,
+      const ctx = out.getContext("2d");
+      if (!ctx) return;
+      ctx.drawImage(uploadedBgImg, 0, 0, uploadedBgDims.width, uploadedBgDims.height);
+      const patch = renderRefractedGlassPatch(
+        uploadedBgImg,
         uploadedBgDims.width,
         uploadedBgDims.height,
         panelPos.x,
@@ -324,8 +492,8 @@ export default function LiquidGlassGeneratorApp() {
           frostOpacity: opacitySlider / 100,
         }
       );
-      ctx.drawImage(refracted, Math.round(panelPos.x), Math.round(panelPos.y));
-      triggerCanvasDownload(out, `liquid-glass-composited-${uploadedBgDims.width}x${uploadedBgDims.height}.png`);
+      ctx.drawImage(patch, Math.round(panelPos.x), Math.round(panelPos.y));
+      downloadCanvas(out, `glass-composited-${uploadedBgDims.width}x${uploadedBgDims.height}.png`);
     }
   };
 
@@ -339,10 +507,10 @@ export default function LiquidGlassGeneratorApp() {
         theme,
         frostOpacity: opacitySlider / 100,
       });
-      triggerSvgDownload(svgStr, `liquid-glass-${shape}-${theme}-${parsedW}x${parsedH}.svg`);
-    } else if (screen === "opt2-workspace" && loadedBgImg) {
+      downloadSvg(svgStr, `glass-${shape}-${theme}-${parsedW}x${parsedH}.svg`);
+    } else if (screen === "opt2-workspace" && uploadedBgImg) {
       const svgStr = generateCompositedGlassSvg(
-        loadedBgImg,
+        uploadedBgImg,
         uploadedBgDims.width,
         uploadedBgDims.height,
         panelPos.x,
@@ -355,22 +523,39 @@ export default function LiquidGlassGeneratorApp() {
           frostOpacity: opacitySlider / 100,
         }
       );
-      triggerSvgDownload(svgStr, `liquid-glass-composited-${uploadedBgDims.width}x${uploadedBgDims.height}.svg`);
+      downloadSvg(svgStr, `glass-composited-${uploadedBgDims.width}x${uploadedBgDims.height}.svg`);
     }
   };
 
-  const handleUploadFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const url = URL.createObjectURL(file);
     const img = new Image();
     img.onload = () => {
-      const detected = detectImageTheme(img);
-      selectThemeAndDefaultOpacity(detected);
+      const sample = document.createElement("canvas");
+      sample.width = 24;
+      sample.height = 24;
+      const sCtx = sample.getContext("2d");
+      if (sCtx) {
+        sCtx.drawImage(img, 0, 0, 24, 24);
+        const px = sCtx.getImageData(0, 0, 24, 24).data;
+        let lum = 0,
+          whites = 0;
+        for (let i = 0; i < px.length; i += 4) {
+          lum += 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
+          if (px[i] > 240 && px[i + 1] > 240 && px[i + 2] > 240) whites++;
+        }
+        const avgLum = lum / (24 * 24);
+        if (whites > 24 * 24 * 0.5) selectThemeAndDefaultOpacity("white");
+        else if (avgLum < 45) selectThemeAndDefaultOpacity("grey1200");
+        else selectThemeAndDefaultOpacity("imagery");
+      }
+
       setUploadedBgDims({ width: img.naturalWidth, height: img.naturalHeight });
-      setUploadedBgUrl(url);
+      setUploadedBgImg(img);
       const initW = Math.min(480, Math.round(img.naturalWidth * 0.35));
-      const initH = Math.min(200, Math.round(img.naturalHeight * 0.22));
+      const initH = Math.min(190, Math.round(img.naturalHeight * 0.2));
       setWidthInput(String(initW));
       setHeightInput(String(initH));
       setPanelPos({
@@ -387,17 +572,25 @@ export default function LiquidGlassGeneratorApp() {
       ? STICKER_CATEGORIES
       : STICKER_CATEGORIES.filter((c) => c.id === activeStickerFilter);
 
+  const stickerHeaderBg =
+    theme === "grey1200"
+      ? PAGE_ASSETS.stickerSheetGrey1200
+      : theme === "white"
+      ? PAGE_ASSETS.stickerSheetWhite
+      : PAGE_ASSETS.stickerSheetImagery;
+
   return (
-    <main className="min-h-screen w-full bg-[#F4F5F7] flex flex-col items-center justify-start p-3 md:p-6">
+    <main className="min-h-screen w-full bg-[#F1F3F4] flex flex-col items-center justify-start py-4 md:py-6 px-3 md:px-6 font-sans text-[#121317]">
       <input
         ref={fileInputRef}
         type="file"
         accept="image/png,image/jpeg,image/webp"
         className="hidden"
-        onChange={handleUploadFile}
+        onChange={handleFileUpload}
       />
 
-      <div className="w-full max-w-[1280px] flex items-center justify-between mb-2 px-1 h-8 sticky top-2 z-30">
+      {/* Top Navigation Bar */}
+      <div className="w-full max-w-[1200px] flex items-center justify-between mb-2.5 h-8 px-1 sticky top-2 z-30">
         {screen !== "home" ? (
           <button
             onClick={() => {
@@ -408,102 +601,110 @@ export default function LiquidGlassGeneratorApp() {
               else if (screen === "opt3-sheet") setScreen("opt3-bg-select");
               else setScreen("home");
             }}
-            className="text-xs font-medium text-neutral-700 hover:text-neutral-950 flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/95 backdrop-blur border border-neutral-200 shadow-sm transition cursor-pointer"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-neutral-700 hover:text-black bg-white/95 backdrop-blur px-3.5 py-1.5 rounded-full border border-neutral-200 shadow-sm transition cursor-pointer"
           >
             ← Back
           </button>
         ) : (
-          <div />
+          <span />
         )}
-        {screen !== "home" && (
-          <button
-            onClick={() => setScreen("home")}
-            className="text-xs font-medium text-neutral-600 hover:text-neutral-950 px-3 py-1 rounded-full bg-white/90 backdrop-blur border border-neutral-200 shadow-sm transition cursor-pointer"
-          >
-            Start over
-          </button>
-        )}
+
+        <div className="flex items-center gap-3">
+          {toastMsg && (
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full shadow-sm">
+              ✓ {toastMsg}
+            </span>
+          )}
+          {screen !== "home" && (
+            <button
+              onClick={() => setScreen("home")}
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-neutral-600 hover:text-black bg-white/90 backdrop-blur px-3.5 py-1.5 rounded-full border border-neutral-200 shadow-sm transition cursor-pointer"
+            >
+              Home
+            </button>
+          )}
+        </div>
       </div>
 
       {screen !== "opt3-sheet" ? (
-        <div className="relative w-full max-w-[1280px] aspect-[16/9] bg-white rounded-2xl shadow-xl overflow-hidden border border-neutral-200/80 select-none">
+        <div className="relative w-full max-w-[1200px] aspect-[16/9] bg-white rounded-2xl shadow-xl overflow-hidden border border-neutral-200/90 select-none">
+          {/* 1. HOME SCREEN */}
           {screen === "home" && (
-            <div className="relative w-full h-full">
+            <>
               <img
                 src={PAGE_ASSETS.cover16_9}
                 alt="Welcome to our glass panel and pill generator"
                 className="w-full h-full object-cover"
               />
-              <button
-                onClick={() => setScreen("opt1-bg-select")}
-                style={{ left: "9%", top: "73%", width: "21%", height: "18%" }}
-                className="absolute rounded-2xl hover:bg-black/[0.04] transition cursor-pointer"
-                aria-label="Export just a panel to size"
-              />
-              <button
-                onClick={() => setScreen("opt2-upload")}
-                style={{ left: "37%", top: "73%", width: "26%", height: "18%" }}
-                className="absolute rounded-2xl hover:bg-black/[0.04] transition cursor-pointer"
-                aria-label="Export a panel on your background"
-              />
-              <button
-                onClick={() => setScreen("opt3-bg-select")}
-                style={{ left: "69%", top: "73%", width: "23%", height: "18%" }}
-                className="absolute rounded-2xl hover:bg-black/[0.04] transition cursor-pointer"
-                aria-label="Select from our sticker sheet"
-              />
-            </div>
+              <div className="absolute bottom-[8%] left-[8%] right-[8%] h-[22%] grid grid-cols-3 gap-4">
+                <button
+                  onClick={() => setScreen("opt1-bg-select")}
+                  aria-label="Export just a panel to size"
+                  className="rounded-2xl hover:bg-black/[0.03] transition cursor-pointer"
+                />
+                <button
+                  onClick={() => setScreen("opt2-upload")}
+                  aria-label="Export a panel on your background"
+                  className="rounded-2xl hover:bg-black/[0.03] transition cursor-pointer"
+                />
+                <button
+                  onClick={() => setScreen("opt3-bg-select")}
+                  aria-label="Select from our sticker sheet"
+                  className="rounded-2xl hover:bg-black/[0.03] transition cursor-pointer"
+                />
+              </div>
+            </>
           )}
 
+          {/* 2. OPTION 1 — BACKGROUND CONTEXT */}
           {screen === "opt1-bg-select" && (
-            <div className="relative w-full h-full">
+            <>
               <img
                 src={PAGE_ASSETS.exportJustPanelCover}
                 alt="Export just a panel to size"
                 className="w-full h-full object-cover"
               />
-              <button
-                onClick={() => {
-                  selectThemeAndDefaultOpacity("imagery");
-                  setScreen("opt1-imagery-select");
-                }}
-                style={{ left: "11%", top: "74%", width: "17%", height: "16%" }}
-                className="absolute rounded-2xl hover:bg-black/[0.04] transition cursor-pointer"
-                aria-label="Full bleed image"
-              />
-              <button
-                onClick={() => {
-                  selectThemeAndDefaultOpacity("grey1200");
-                  setFormat("1:1");
-                  setScreen("opt1-workspace");
-                }}
-                style={{ left: "41%", top: "74%", width: "18%", height: "16%" }}
-                className="absolute rounded-2xl hover:bg-black/[0.04] transition cursor-pointer"
-                aria-label="Grey 1200"
-              />
-              <button
-                onClick={() => {
-                  selectThemeAndDefaultOpacity("white");
-                  setFormat("1:1");
-                  setScreen("opt1-workspace");
-                }}
-                style={{ left: "73%", top: "74%", width: "15%", height: "16%" }}
-                className="absolute rounded-2xl hover:bg-black/[0.04] transition cursor-pointer"
-                aria-label="White"
-              />
-            </div>
+              <div className="absolute bottom-[8%] left-[12%] right-[12%] h-[22%] grid grid-cols-3 gap-6">
+                <button
+                  onClick={() => {
+                    selectThemeAndDefaultOpacity("imagery");
+                    setScreen("opt1-imagery-select");
+                  }}
+                  aria-label="Full bleed image"
+                  className="rounded-2xl hover:bg-black/[0.03] transition cursor-pointer"
+                />
+                <button
+                  onClick={() => {
+                    selectThemeAndDefaultOpacity("grey1200");
+                    setFormat("1:1");
+                    setScreen("opt1-workspace");
+                  }}
+                  aria-label="Grey 1200"
+                  className="rounded-2xl hover:bg-black/[0.03] transition cursor-pointer"
+                />
+                <button
+                  onClick={() => {
+                    selectThemeAndDefaultOpacity("white");
+                    setFormat("1:1");
+                    setScreen("opt1-workspace");
+                  }}
+                  aria-label="White"
+                  className="rounded-2xl hover:bg-black/[0.03] transition cursor-pointer"
+                />
+              </div>
+            </>
           )}
 
+          {/* 3. OPTION 1 — FULL BLEED 4-IMAGE PICKER */}
           {screen === "opt1-imagery-select" && (
-            <div className="relative w-full h-full">
+            <>
               <img
                 src={PAGE_ASSETS.fullBleedImageCover}
                 alt="Select an example background"
                 className="w-full h-full object-cover"
               />
-              {IMAGERY_THUMB_ORDER.map((optNum, idx) => {
-                const leftPositions = ["5.5%", "28.0%", "50.5%", "72.9%"];
-                return (
+              <div className="absolute bottom-[8%] left-[5%] right-[5%] h-[45%] grid grid-cols-4 gap-4">
+                {[1, 4, 3, 2].map((optNum) => (
                   <button
                     key={optNum}
                     onClick={() => {
@@ -512,22 +713,17 @@ export default function LiquidGlassGeneratorApp() {
                       setFormat("1:1");
                       setScreen("opt1-workspace");
                     }}
-                    style={{
-                      left: leftPositions[idx],
-                      top: "49.8%",
-                      width: "21.5%",
-                      height: "38.5%",
-                    }}
-                    className="absolute rounded-lg hover:ring-4 hover:ring-blue-500/60 transition cursor-pointer"
-                    aria-label={`Example image ${idx + 1}`}
+                    aria-label={`Image option ${optNum}`}
+                    className="rounded-xl hover:ring-4 hover:ring-blue-500/60 transition cursor-pointer"
                   />
-                );
-              })}
-            </div>
+                ))}
+              </div>
+            </>
           )}
 
+          {/* 4. OPTION 2 — UPLOAD COVER */}
           {screen === "opt2-upload" && (
-            <div className="relative w-full h-full">
+            <>
               <img
                 src={PAGE_ASSETS.exportOnBgCover}
                 alt="Export a panel on your background"
@@ -535,15 +731,15 @@ export default function LiquidGlassGeneratorApp() {
               />
               <button
                 onClick={() => fileInputRef.current?.click()}
-                style={{ left: "35%", top: "74.5%", width: "30%", height: "16%" }}
-                className="absolute rounded-full hover:bg-black/[0.04] transition cursor-pointer"
                 aria-label="Upload now"
+                className="absolute bottom-[8%] left-[32%] right-[32%] h-[20%] rounded-full hover:bg-black/[0.03] transition cursor-pointer"
               />
-            </div>
+            </>
           )}
 
+          {/* 5. WORKSPACE — OPTION 1 & OPTION 2 (CONTROLS IN GREEN DOTTED CLEAR ZONE) */}
           {(screen === "opt1-workspace" || screen === "opt2-workspace") && (
-            <div className="relative w-full h-full">
+            <>
               <img
                 src={
                   screen === "opt1-workspace"
@@ -551,40 +747,34 @@ export default function LiquidGlassGeneratorApp() {
                     : PAGE_ASSETS.exportOnBgInternal
                 }
                 alt="Workspace"
-                className="w-full h-full object-cover pointer-events-none"
+                className="w-full h-full object-cover"
               />
 
-              <div
-                style={{ left: "5%", top: "20%", width: "41%", height: "73%" }}
-                className="absolute flex items-center justify-center p-2"
-              >
-                <div className="relative w-full h-full flex items-center justify-center">
-                  <canvas
-                    ref={previewCanvasRef}
-                    onPointerDown={handlePointerDown}
-                    onPointerMove={handlePointerMove}
-                    onPointerUp={handlePointerUp}
-                    className={`max-w-full max-h-full object-contain shadow-md border border-neutral-200/70 ${
-                      hasValidSize ? "cursor-grab active:cursor-grabbing" : "cursor-default"
-                    }`}
-                  />
-                </div>
+              {/* Left Interactive Canvas Stage */}
+              <div className="absolute left-[4.5%] w-[43%] top-[18%] bottom-[8%] flex items-center justify-center overflow-hidden">
+                <canvas
+                  ref={previewCanvasRef}
+                  onPointerDown={handlePointerDown}
+                  onPointerMove={handlePointerMove}
+                  onPointerUp={handlePointerUp}
+                  className={`max-w-full max-h-full object-contain shadow-sm ${
+                    hasValidSize ? "cursor-grab active:cursor-grabbing" : "cursor-default"
+                  }`}
+                />
               </div>
 
-              <div
-                style={{ left: "50.1%", top: "51.5%", width: "43%", height: "44%" }}
-                className="absolute flex flex-col justify-start gap-2.5 text-[#121317]"
-              >
-                <div className="flex flex-wrap items-end gap-4">
+              {/* Lower-Right Green Dotted Clear Zone: Menus, Inputs, Opacity & Export Buttons */}
+              <div className="absolute left-[52.7%] right-[6%] top-[62.5%] bottom-[3.5%] flex flex-col justify-start gap-1.5 lg:gap-2 select-auto">
+                <div className="flex flex-wrap items-end gap-3">
                   {screen === "opt1-workspace" && (
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[11px] font-semibold tracking-tight text-neutral-800">
+                    <div className="flex flex-col gap-0.5">
+                      <label className="text-[10px] font-semibold text-neutral-800 leading-tight">
                         Format
                       </label>
                       <select
                         value={format}
                         onChange={(e) => setFormat(e.target.value as FormatRatio)}
-                        className="h-8 px-2.5 text-xs font-medium bg-white border border-neutral-800 rounded-md focus:outline-none"
+                        className="h-7 px-2 text-[11px] font-medium bg-white border border-neutral-800 rounded-md focus:outline-none"
                       >
                         <option value="1:1">1:1</option>
                         <option value="4:5">4:5</option>
@@ -594,22 +784,21 @@ export default function LiquidGlassGeneratorApp() {
                     </div>
                   )}
 
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[11px] font-semibold tracking-tight text-neutral-800">
+                  <div className="flex flex-col gap-0.5">
+                    <label className="text-[10px] font-semibold text-neutral-800 leading-tight">
                       Shape
                     </label>
                     <select
                       value={shape}
                       onChange={(e) => {
-                        const nextShape = e.target.value as PanelShape;
-                        setShape(nextShape);
-                        if (nextShape === "circle") {
-                          setHeightInput(widthInput);
-                        } else if (nextShape === "cta-pill" && parseInt(heightInput, 10) > 140) {
-                          setHeightInput("88");
+                        const next = e.target.value as GlassShape;
+                        setShape(next);
+                        if (next === "circle") setHeightInput(widthInput);
+                        else if (next === "cta-pill" && parseInt(heightInput, 10) > 140) {
+                          setHeightInput("84");
                         }
                       }}
-                      className="h-8 px-2.5 text-xs font-medium bg-white border border-neutral-800 rounded-md focus:outline-none"
+                      className="h-7 px-2 text-[11px] font-medium bg-white border border-neutral-800 rounded-md focus:outline-none"
                     >
                       <option value="text-panel">Text panel</option>
                       <option value="circle">Circle</option>
@@ -618,14 +807,16 @@ export default function LiquidGlassGeneratorApp() {
                   </div>
 
                   {screen === "opt2-workspace" && (
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[11px] font-semibold tracking-tight text-neutral-800">
-                        Glass tone
+                    <div className="flex flex-col gap-0.5">
+                      <label className="text-[10px] font-semibold text-neutral-800 leading-tight">
+                        Rim calibration
                       </label>
                       <select
                         value={theme}
-                        onChange={(e) => selectThemeAndDefaultOpacity(e.target.value as BackgroundTheme)}
-                        className="h-8 px-2.5 text-xs font-medium bg-white border border-neutral-800 rounded-md focus:outline-none"
+                        onChange={(e) =>
+                          selectThemeAndDefaultOpacity(e.target.value as GlassTheme)
+                        }
+                        className="h-7 px-2 text-[11px] font-medium bg-white border border-neutral-800 rounded-md focus:outline-none"
                       >
                         <option value="imagery">Full bleed image</option>
                         <option value="grey1200">Grey 1200</option>
@@ -635,11 +826,11 @@ export default function LiquidGlassGeneratorApp() {
                   )}
                 </div>
 
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-semibold tracking-tight text-neutral-800">
+                <div className="flex flex-col gap-0.5">
+                  <label className="text-[10px] font-semibold text-neutral-800 leading-tight">
                     Size
                   </label>
-                  <div className="flex items-center gap-2 text-xs font-medium">
+                  <div className="flex items-center gap-2 text-[11px] font-medium">
                     <input
                       type="number"
                       min={24}
@@ -649,8 +840,7 @@ export default function LiquidGlassGeneratorApp() {
                         setWidthInput(e.target.value);
                         if (shape === "circle") setHeightInput(e.target.value);
                       }}
-                      placeholder="420"
-                      className="w-20 h-8 px-2 text-xs bg-white border border-neutral-800 rounded-md focus:outline-none"
+                      className="w-[72px] h-7 px-2 text-[11px] bg-white border border-neutral-800 rounded-md focus:outline-none"
                     />
                     <span>{shape === "circle" ? "px diameter" : "px wide x"}</span>
                     {shape !== "circle" && (
@@ -661,8 +851,7 @@ export default function LiquidGlassGeneratorApp() {
                           max={4000}
                           value={heightInput}
                           onChange={(e) => setHeightInput(e.target.value)}
-                          placeholder="180"
-                          className="w-20 h-8 px-2 text-xs bg-white border border-neutral-800 rounded-md focus:outline-none"
+                          className="w-[72px] h-7 px-2 text-[11px] bg-white border border-neutral-800 rounded-md focus:outline-none"
                         />
                         <span>px high</span>
                       </>
@@ -670,12 +859,14 @@ export default function LiquidGlassGeneratorApp() {
                   </div>
                 </div>
 
-                <div className="flex flex-col gap-1 max-w-[280px]">
+                <div className="flex flex-col gap-0.5 max-w-[260px]">
                   <div className="flex items-center justify-between">
-                    <label className="text-[11px] font-semibold tracking-tight text-neutral-800">
+                    <label className="text-[10px] font-semibold text-neutral-800 leading-tight">
                       Opacity
                     </label>
-                    <span className="text-[11px] text-neutral-500">{opacitySlider}%</span>
+                    <span className="text-[10px] text-neutral-500 leading-tight">
+                      {opacitySlider}%
+                    </span>
                   </div>
                   <input
                     type="range"
@@ -687,133 +878,123 @@ export default function LiquidGlassGeneratorApp() {
                   />
                 </div>
 
-                <div className="pt-1 flex flex-col gap-1.5 max-w-[360px]">
-                  <div className="flex flex-wrap items-center gap-2.5">
+                <div className="pt-0.5 flex flex-col gap-1 max-w-[340px]">
+                  <div className="flex flex-wrap items-center gap-2">
                     <button
                       onClick={handleExportPng}
                       disabled={!hasValidSize}
-                      className="px-5 py-1.5 rounded-full border-[1.5px] border-neutral-900 bg-white hover:bg-neutral-900 hover:text-white disabled:opacity-40 text-xs font-semibold transition cursor-pointer"
+                      className="px-4 py-1 rounded-full border-[1.5px] border-neutral-900 bg-white hover:bg-neutral-900 hover:text-white disabled:opacity-40 text-[11px] font-semibold transition cursor-pointer"
                     >
                       Export .png
                     </button>
                     <button
                       onClick={handleExportSvg}
                       disabled={!hasValidSize}
-                      className="px-5 py-1.5 rounded-full border-[1.5px] border-neutral-900 bg-white hover:bg-neutral-900 hover:text-white disabled:opacity-40 text-xs font-semibold transition cursor-pointer"
+                      className="px-4 py-1 rounded-full border-[1.5px] border-neutral-900 bg-white hover:bg-neutral-900 hover:text-white disabled:opacity-40 text-[11px] font-semibold transition cursor-pointer"
                     >
                       Export .svg
                     </button>
                   </div>
-                  <span className="text-[11px] text-neutral-500">
+                  <span className="text-[10px] text-neutral-500 leading-tight">
                     {screen === "opt1-workspace"
                       ? `Exports ${parsedW || 0}×${parsedH || 0}px panel only`
                       : `Exports ${uploadedBgDims.width}×${uploadedBgDims.height}px image + panel`}
                   </span>
                 </div>
               </div>
-            </div>
+            </>
           )}
 
+          {/* 6. OPTION 3 — STICKER SHEET COVER */}
           {screen === "opt3-bg-select" && (
-            <div className="relative w-full h-full">
+            <>
               <img
                 src={PAGE_ASSETS.stickerSheetCover}
                 alt="Sticker sheet"
                 className="w-full h-full object-cover"
               />
-              <button
-                onClick={() => {
-                  selectThemeAndDefaultOpacity("imagery");
-                  setActiveStickerFilter("all");
-                  setOpenStickerMenuKey(null);
-                  setScreen("opt3-sheet");
-                }}
-                style={{ left: "11%", top: "74%", width: "17%", height: "16%" }}
-                className="absolute rounded-2xl hover:bg-black/[0.04] transition cursor-pointer"
-                aria-label="Full bleed image"
-              />
-              <button
-                onClick={() => {
-                  selectThemeAndDefaultOpacity("grey1200");
-                  setActiveStickerFilter("all");
-                  setOpenStickerMenuKey(null);
-                  setScreen("opt3-sheet");
-                }}
-                style={{ left: "41%", top: "74%", width: "18%", height: "16%" }}
-                className="absolute rounded-2xl hover:bg-black/[0.04] transition cursor-pointer"
-                aria-label="Grey 1200"
-              />
-              <button
-                onClick={() => {
-                  selectThemeAndDefaultOpacity("white");
-                  setActiveStickerFilter("all");
-                  setOpenStickerMenuKey(null);
-                  setScreen("opt3-sheet");
-                }}
-                style={{ left: "73%", top: "74%", width: "15%", height: "16%" }}
-                className="absolute rounded-2xl hover:bg-black/[0.04] transition cursor-pointer"
-                aria-label="White"
-              />
-            </div>
+              <div className="absolute bottom-[8%] left-[12%] right-[12%] h-[22%] grid grid-cols-3 gap-6">
+                <button
+                  onClick={() => {
+                    selectThemeAndDefaultOpacity("imagery");
+                    setActiveStickerFilter("all");
+                    setOpenStickerMenuKey(null);
+                    setScreen("opt3-sheet");
+                  }}
+                  aria-label="Full bleed image"
+                  className="rounded-2xl hover:bg-black/[0.03] transition cursor-pointer"
+                />
+                <button
+                  onClick={() => {
+                    selectThemeAndDefaultOpacity("grey1200");
+                    setActiveStickerFilter("all");
+                    setOpenStickerMenuKey(null);
+                    setScreen("opt3-sheet");
+                  }}
+                  aria-label="Grey 1200"
+                  className="rounded-2xl hover:bg-black/[0.03] transition cursor-pointer"
+                />
+                <button
+                  onClick={() => {
+                    selectThemeAndDefaultOpacity("white");
+                    setActiveStickerFilter("all");
+                    setOpenStickerMenuKey(null);
+                    setScreen("opt3-sheet");
+                  }}
+                  aria-label="White"
+                  className="rounded-2xl hover:bg-black/[0.03] transition cursor-pointer"
+                />
+              </div>
+            </>
           )}
         </div>
       ) : (
-        <div className="relative w-full max-w-[1280px] bg-white rounded-2xl shadow-xl overflow-hidden border border-neutral-200/80 flex flex-col">
-          {/* Supplied Top Brand Banner for Sticker Sheet */}
-          <div className="relative w-full aspect-[16/4.4] overflow-hidden bg-white">
-            <img
-              src={
-                theme === "grey1200"
-                  ? PAGE_ASSETS.stickerSheetGrey1200
-                  : theme === "white"
-                  ? PAGE_ASSETS.stickerSheetWhite
-                  : PAGE_ASSETS.stickerSheetImagery
-              }
-              alt={`Sticker sheet ${theme}`}
-              className="w-full h-auto object-cover object-top pointer-events-none"
-            />
-          </div>
-
-          {/* Category Filter Bar */}
-          <div className="w-full bg-white px-6 py-4 border-b border-neutral-200 flex flex-wrap items-center justify-between gap-3">
-            <span className="text-xs text-neutral-500">
-              Click any panel to choose <strong>Export .png</strong> or <strong>Export .svg</strong> ({LOCKED_THEME_OPACITY[theme]}% calibrated opacity)
-            </span>
-            <div className="flex flex-wrap items-center gap-2">
-              {[
-                { id: "all", label: "All (80)" },
-                { id: "squares", label: "Squares (20)" },
-                { id: "horizontal", label: "Horizontal (20)" },
-                { id: "vertical", label: "Vertical (20)" },
-                { id: "pills", label: "CTA Pills (10)" },
-                { id: "circles", label: "Circles (10)" },
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => {
-                    setActiveStickerFilter(tab.id);
-                    setOpenStickerMenuKey(null);
-                  }}
-                  className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition cursor-pointer border ${
-                    activeStickerFilter === tab.id
-                      ? "bg-[#121317] text-white border-[#121317]"
-                      : "bg-white text-neutral-700 border-neutral-300 hover:border-neutral-900"
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
+        /* 7. OPTION 3 — SCROLLING 80-ASSET STICKER SHEET (RED-OUTLINED COPY REMOVED) */
+        <div className="relative w-full max-w-[1200px] bg-white rounded-2xl shadow-xl overflow-hidden border border-neutral-200/90 flex flex-col">
+          {stickerHeaderBg && (
+            <div className="w-full aspect-[16/4.3] overflow-hidden bg-white">
+              <img
+                src={stickerHeaderBg}
+                alt="Sticker sheet header"
+                className="w-full h-full object-cover object-top"
+              />
             </div>
+          )}
+
+          {/* Clean Centered Category Filter Bar (Duplicate Left Copy Removed) */}
+          <div className="w-full px-6 py-3 bg-white border-b border-neutral-200 flex flex-wrap items-center justify-center gap-2">
+            {[
+              { id: "all", label: "All (80)" },
+              { id: "squares", label: "Squares (20)" },
+              { id: "horizontal", label: "Horizontal (20)" },
+              { id: "vertical", label: "Vertical (20)" },
+              { id: "pills", label: "CTA Pills (10)" },
+              { id: "circles", label: "Circles (10)" },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  setActiveStickerFilter(tab.id);
+                  setOpenStickerMenuKey(null);
+                }}
+                className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition cursor-pointer border ${
+                  activeStickerFilter === tab.id
+                    ? "bg-[#121317] text-white border-[#121317]"
+                    : "bg-white text-neutral-700 border-neutral-300 hover:border-neutral-900"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
 
-          {/* Scrolling 80-Asset Gallery */}
           <div
             className={`w-full px-6 sm:px-10 py-10 space-y-12 ${
               theme === "grey1200"
                 ? "bg-[#121317] text-white"
                 : theme === "white"
                 ? "bg-[#F8F9FA] text-[#121317]"
-                : "bg-[#1C242B] text-white"
+                : "bg-[#1E272C] text-white"
             }`}
           >
             {visibleCategories.map((cat) => (
@@ -836,17 +1017,11 @@ export default function LiquidGlassGeneratorApp() {
                         onToggleMenu={(nextOpen) =>
                           setOpenStickerMenuKey(nextOpen ? itemKey : null)
                         }
-                        onExportPng={(canvas) =>
-                          triggerCanvasDownload(
-                            canvas,
-                            `sticker-${cat.shape}-${theme}-${w}x${h}.png`
-                          )
+                        onExportPng={(canvas, sizeStr, sh) =>
+                          downloadCanvas(canvas, `sticker-${sh}-${theme}-${sizeStr}.png`)
                         }
-                        onExportSvg={(svgStr) =>
-                          triggerSvgDownload(
-                            svgStr,
-                            `sticker-${cat.shape}-${theme}-${w}x${h}.svg`
-                          )
+                        onExportSvg={(svgStr, sizeStr, sh) =>
+                          downloadSvg(svgStr, `sticker-${sh}-${theme}-${sizeStr}.svg`)
                         }
                       />
                     );
@@ -858,154 +1033,5 @@ export default function LiquidGlassGeneratorApp() {
         </div>
       )}
     </main>
-  );
-}
-
-function StickerCard({
-  width,
-  height,
-  shape,
-  theme,
-  isOpen,
-  onToggleMenu,
-  onExportPng,
-  onExportSvg,
-}: {
-  width: number;
-  height: number;
-  shape: PanelShape;
-  theme: BackgroundTheme;
-  isOpen: boolean;
-  onToggleMenu: (open: boolean) => void;
-  onExportPng: (canvas: HTMLCanvasElement) => void;
-  onExportSvg: (svgStr: string) => void;
-}) {
-  const [previewUrl, setPreviewUrl] = useState<string>("");
-  const [isGenerating, setIsGenerating] = useState<boolean>(false);
-  const cardRef = useRef<HTMLDivElement | null>(null);
-  const lockedOpacity = LOCKED_THEME_OPACITY[theme] / 100;
-
-  useEffect(() => {
-    setPreviewUrl("");
-    const el = cardRef.current;
-    if (!el) return;
-    let cancelled = false;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting && !cancelled) {
-          observer.disconnect();
-          const maxPreviewDim = 220;
-          const scale = Math.min(1, maxPreviewDim / Math.max(width, height));
-          const pw = Math.max(20, Math.round(width * scale));
-          const ph = Math.max(20, Math.round(height * scale));
-          const scaledRadius = Math.max(4, 20 * scale);
-          const thumbCanvas = renderStandaloneGlassPanel({
-            width: pw,
-            height: ph,
-            shape,
-            theme,
-            frostOpacity: lockedOpacity,
-            customRadius: scaledRadius,
-          });
-          if (!cancelled) {
-            setPreviewUrl(thumbCanvas.toDataURL("image/png"));
-          }
-        }
-      },
-      { rootMargin: "200px" }
-    );
-    observer.observe(el);
-    return () => {
-      cancelled = true;
-      observer.disconnect();
-    };
-  }, [width, height, shape, theme, lockedOpacity]);
-
-  return (
-    <div
-      ref={cardRef}
-      onClick={(e) => {
-        e.stopPropagation();
-        onToggleMenu(!isOpen);
-      }}
-      className={`relative group flex flex-col items-end justify-between gap-2 p-3.5 rounded-xl border transition cursor-pointer w-full ${
-        theme === "white"
-          ? "border-neutral-200/80 hover:border-neutral-400 bg-white/70 hover:bg-white"
-          : "border-white/10 hover:border-white/25 bg-white/[0.02] hover:bg-white/[0.06]"
-      } ${isOpen ? "ring-2 ring-blue-500/70" : ""}`}
-    >
-      <div className="relative w-full h-28 flex items-center justify-center overflow-hidden p-1">
-        {previewUrl ? (
-          <img
-            src={previewUrl}
-            alt={`${width}px X ${height}px`}
-            className={`max-w-full max-h-full object-contain transition-transform ${
-              isOpen ? "scale-[0.98] opacity-40" : "group-hover:scale-[1.03]"
-            }`}
-          />
-        ) : (
-          <div className="w-16 h-10 rounded-lg bg-neutral-400/10 animate-pulse" />
-        )}
-
-        {isOpen && (
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="absolute inset-0 z-20 flex items-center justify-center p-2"
-          >
-            <div className="w-40 rounded-xl bg-white text-[#121317] shadow-xl border border-neutral-200 overflow-hidden flex flex-col divide-y divide-neutral-100">
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (isGenerating) return;
-                  setIsGenerating(true);
-                  requestAnimationFrame(() => {
-                    const fullCanvas = renderStandaloneGlassPanel({
-                      width,
-                      height,
-                      shape,
-                      theme,
-                      frostOpacity: lockedOpacity,
-                    });
-                    onExportPng(fullCanvas);
-                    setIsGenerating(false);
-                    onToggleMenu(false);
-                  });
-                }}
-                className="w-full px-3.5 py-2.5 text-xs font-semibold text-left hover:bg-neutral-100 flex items-center justify-between transition cursor-pointer"
-              >
-                <span>{isGenerating ? "Exporting..." : "Export .png"}</span>
-              </button>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const svgStr = generateStandaloneGlassSvg({
-                    width,
-                    height,
-                    shape,
-                    theme,
-                    frostOpacity: lockedOpacity,
-                  });
-                  onExportSvg(svgStr);
-                  onToggleMenu(false);
-                }}
-                className="w-full px-3.5 py-2.5 text-xs font-semibold text-left hover:bg-neutral-100 flex items-center justify-between transition cursor-pointer"
-              >
-                <span>Export .svg</span>
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <span
-        className={`text-[11px] font-medium tracking-tight ${
-          theme === "white" ? "text-neutral-700" : "text-neutral-300"
-        }`}
-      >
-        {width}px X {height}px
-      </span>
-    </div>
   );
 }
