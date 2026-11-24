@@ -740,7 +740,7 @@ export default function Page() {
             </>
           )}
 
-          {/* 5. WORKSPACE — OPTION 1 & OPTION 2 (CONTROLS IN GREEN DOTTED CLEAR ZONE) */}
+          {/* 5. WORKSPACE — OPTION 1 & OPTION 2 (ALIGNED AT 960px = 50% LEFT EDGE) */}
           {(screen === "opt1-workspace" || screen === "opt2-workspace") && (
             <>
               <img
@@ -766,8 +766,8 @@ export default function Page() {
                 />
               </div>
 
-              {/* Lower-Right Green Dotted Clear Zone: Menus, Inputs, Opacity & Export Buttons */}
-              <div className="absolute left-[52.7%] right-[6%] top-[62.5%] bottom-[3.5%] flex flex-col justify-start gap-1.5 lg:gap-2 select-auto">
+              {/* Lower-Right Controls Aligned to 960px (50% of 1920px Canvas) */}
+              <div className="absolute left-[50%] right-[6%] top-[62.5%] bottom-[4%] flex flex-col justify-start gap-1.5 lg:gap-2 select-auto">
                 <div className="flex flex-wrap items-end gap-3">
                   {screen === "opt1-workspace" && (
                     <div className="flex flex-col gap-0.5">
@@ -881,28 +881,21 @@ export default function Page() {
                   />
                 </div>
 
-                <div className="pt-0.5 flex flex-col gap-1 max-w-[340px]">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      onClick={handleExportPng}
-                      disabled={!hasValidSize}
-                      className="px-4 py-1 rounded-full border-[1.5px] border-neutral-900 bg-white hover:bg-neutral-900 hover:text-white disabled:opacity-40 text-[11px] font-semibold transition cursor-pointer"
-                    >
-                      Export .png
-                    </button>
-                    <button
-                      onClick={handleExportSvg}
-                      disabled={!hasValidSize}
-                      className="px-4 py-1 rounded-full border-[1.5px] border-neutral-900 bg-white hover:bg-neutral-900 hover:text-white disabled:opacity-40 text-[11px] font-semibold transition cursor-pointer"
-                    >
-                      Export .svg
-                    </button>
-                  </div>
-                  <span className="text-[10px] text-neutral-500 leading-tight">
-                    {screen === "opt1-workspace"
-                      ? `Exports ${parsedW || 0}×${parsedH || 0}px panel only`
-                      : `Exports ${uploadedBgDims.width}×${uploadedBgDims.height}px image + panel`}
-                  </span>
+                <div className="pt-1 flex flex-wrap items-center gap-2 max-w-[340px]">
+                  <button
+                    onClick={handleExportPng}
+                    disabled={!hasValidSize}
+                    className="px-4 py-1 rounded-full border-[1.5px] border-neutral-900 bg-white hover:bg-neutral-900 hover:text-white disabled:opacity-40 text-[11px] font-semibold transition cursor-pointer"
+                  >
+                    Export .png
+                  </button>
+                  <button
+                    onClick={handleExportSvg}
+                    disabled={!hasValidSize}
+                    className="px-4 py-1 rounded-full border-[1.5px] border-neutral-900 bg-white hover:bg-neutral-900 hover:text-white disabled:opacity-40 text-[11px] font-semibold transition cursor-pointer"
+                  >
+                    Export .svg
+                  </button>
                 </div>
               </div>
             </>
@@ -952,7 +945,7 @@ export default function Page() {
           )}
         </div>
       ) : (
-        /* 7. OPTION 3 — SCROLLING 80-ASSET STICKER SHEET (RED-OUTLINED COPY REMOVED) */
+        /* 7. OPTION 3 — SCROLLING 80-ASSET STICKER SHEET */
         <div className="relative w-full max-w-[1200px] bg-white rounded-2xl shadow-xl overflow-hidden border border-neutral-200/90 flex flex-col">
           {stickerHeaderBg && (
             <div className="w-full aspect-[16/4.3] overflow-hidden bg-white">
@@ -964,7 +957,7 @@ export default function Page() {
             </div>
           )}
 
-          {/* Clean Centered Category Filter Bar (Duplicate Left Copy Removed) */}
+          {/* Clean Centered Category Filter Bar */}
           <div className="w-full px-6 py-3 bg-white border-b border-neutral-200 flex flex-wrap items-center justify-center gap-2">
             {[
               { id: "all", label: "All (80)" },
