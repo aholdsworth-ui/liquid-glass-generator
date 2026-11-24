@@ -635,7 +635,7 @@ export default function Page() {
           {screen === "home" && (
             <>
               <img
-                src={pageAssetsAny.cover16_9}
+                src="/synced/home-cover-1795554141.png"
                 alt="Welcome to our glass panel and pill generator"
                 className="w-full h-full object-cover"
               />
