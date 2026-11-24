@@ -18,11 +18,17 @@ export const FORMAT_DIMENSIONS: Record<FormatRatio, { width: number; height: num
   "16:9": { width: 1920, height: 1080, folder: "16-9" },
 };
 
+export const LOCKED_THEME_OPACITY: Record<BackgroundTheme, number> = {
+  imagery: 35,
+  grey1200: 40,
+  white: 80,
+};
+
 export function getCornerRadius(
   width: number,
   height: number,
   shape: PanelShape,
-  customRadius = 20
+  customRadius: number = 20
 ): number {
   const maxR = Math.min(width, height) / 2;
   if (shape === "circle" || shape === "cta-pill") {
@@ -72,15 +78,15 @@ export function renderStandaloneGlassPanel(config: GlassRenderConfig): HTMLCanva
   const frostSlider = Math.max(0, Math.min(1, config.frostOpacity));
   const baseFrostAlpha =
     config.theme === "grey1200"
-      ? 0.03 + frostSlider * 0.128
+      ? 0.028 + frostSlider * 0.128
       : config.theme === "white"
       ? 0.03 + frostSlider * 0.214
       : 0.04 + frostSlider * 0.18;
 
   const bevelWidth =
     config.theme === "white"
-      ? Math.min(6, Math.min(w, h) * 0.12)
-      : Math.min(11, Math.min(w, h) * 0.18);
+      ? Math.min(5.5, Math.min(w, h) * 0.11)
+      : Math.min(10.5, Math.min(w, h) * 0.18);
 
   const light1X = -0.68, light1Y = -0.73;
   const light2X = 0.55, light2Y = 0.83;
@@ -104,53 +110,49 @@ export function renderStandaloneGlassPanel(config: GlassRenderConfig): HTMLCanva
       const directionalRim =
         0.35 + 0.65 * Math.pow(catchTopLeft, 1.35) + 0.38 * Math.pow(catchBottomRight, 1.65);
 
-      const sheenGrad = 1.0 - 0.22 * vNorm + 0.08 * (1 - uNorm);
+      const sheenGrad = 1.0 - 0.2 * vNorm + 0.08 * (1 - uNorm);
       let frostR = 252, frostG = 253, frostB = 255;
       if (config.theme === "white") {
-        frostR = 242;
-        frostG = 245;
-        frostB = 250;
+        frostR = 242; frostG = 245; frostB = 250;
       } else if (config.theme === "grey1200") {
-        frostR = 210;
-        frostG = 215;
-        frostB = 224;
+        frostR = 206; frostG = 212; frostB = 222;
       }
-      const frostA = Math.min(0.65, baseFrostAlpha * sheenGrad);
+      const frostA = Math.min(0.6, baseFrostAlpha * sheenGrad);
 
-      const meniscusBand = Math.exp(-Math.pow(inwardDist / Math.max(1.8, bevelWidth * 0.45), 1.75));
+      const meniscusBand = Math.exp(-Math.pow(inwardDist / Math.max(1.7, bevelWidth * 0.44), 1.75));
       let bevelR = 255, bevelG = 255, bevelB = 255, bevelA = 0;
 
       if (config.theme === "white") {
-        const outerKeyline = 1 - smoothstep(0.35, 1.45, inwardDist);
+        const outerKeyline = 1 - smoothstep(0.35, 1.4, inwardDist);
         const innerSpecular =
-          smoothstep(0.6, 1.6, inwardDist) * (1 - smoothstep(1.6, bevelWidth, inwardDist));
+          smoothstep(0.55, 1.5, inwardDist) * (1 - smoothstep(1.5, bevelWidth, inwardDist));
 
-        const keyA = outerKeyline * (0.16 + 0.08 * catchBottomRight);
-        const specA = innerSpecular * (0.20 * directionalRim) + meniscusBand * 0.025;
+        const keyA = outerKeyline * (0.15 + 0.07 * catchBottomRight);
+        const specA = innerSpecular * (0.18 * directionalRim) + meniscusBand * 0.02;
 
-        const totalRimA = Math.min(0.65, keyA + specA);
+        const totalRimA = Math.min(0.6, keyA + specA);
         if (totalRimA > 0.001) {
           const keyWeight = keyA / totalRimA;
-          bevelR = Math.round(154 * keyWeight + 255 * (1 - keyWeight));
-          bevelG = Math.round(162 * keyWeight + 255 * (1 - keyWeight));
-          bevelB = Math.round(176 * keyWeight + 255 * (1 - keyWeight));
+          bevelR = Math.round(156 * keyWeight + 255 * (1 - keyWeight));
+          bevelG = Math.round(164 * keyWeight + 255 * (1 - keyWeight));
+          bevelB = Math.round(178 * keyWeight + 255 * (1 - keyWeight));
           bevelA = totalRimA;
         }
       } else if (config.theme === "grey1200") {
         const crispEdge = 1 - smoothstep(0.45, 1.75, inwardDist);
-        const sheenLift = Math.round(28 * catchTopLeft);
-        bevelR = 132 + sheenLift;
-        bevelG = 138 + sheenLift;
-        bevelB = 149 + sheenLift;
+        const sheenLift = Math.round(26 * catchTopLeft);
+        bevelR = 130 + sheenLift;
+        bevelG = 136 + sheenLift;
+        bevelB = 148 + sheenLift;
         bevelA = Math.min(
-          0.52,
-          crispEdge * (0.24 + 0.24 * directionalRim) + meniscusBand * (0.055 * directionalRim)
+          0.5,
+          crispEdge * (0.24 + 0.23 * directionalRim) + meniscusBand * (0.05 * directionalRim)
         );
       } else {
         const crispEdge = 1 - smoothstep(0.5, 1.85, inwardDist);
         bevelA = Math.min(
-          0.90,
-          crispEdge * (0.34 + 0.46 * directionalRim) + meniscusBand * (0.10 * directionalRim)
+          0.9,
+          crispEdge * (0.34 + 0.46 * directionalRim) + meniscusBand * (0.1 * directionalRim)
         );
       }
 
@@ -289,7 +291,7 @@ export function generateCompositedGlassSvg(
 
   const innerPanelSvg = generateStandaloneGlassSvg(config)
     .replace(/<\?xml.*?\?>\s*/g, "")
-    .replace(/<svg[^>]*>/, `<g id="liquid-glass-vector-panel" transform="translate(${px}, ${py})">`)
+    .replace(/<svg[^>]*>/, `<g id="liquid-glass-svg-panel" transform="translate(${px}, ${py})">`)
     .replace(/<\/svg>\s*$/, "</g>");
 
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -320,9 +322,9 @@ export function renderRefractedGlassPatch(
 ): HTMLCanvasElement {
   const w = Math.max(24, Math.round(config.width));
   const h = Math.max(24, Math.round(config.height));
-  const r = getCornerRadius(w, h, config.shape);
+  const r = getCornerRadius(w, h, config.shape, 20);
 
-  const pad = 32;
+  const pad = 30;
   const sx = Math.floor(panelX - pad);
   const sy = Math.floor(panelY - pad);
   const sw = w + pad * 2;
@@ -342,10 +344,10 @@ export function renderRefractedGlassPatch(
   const bCtx = blurBuf.getContext("2d", { willReadFrequently: true })!;
   const blurPx =
     config.theme === "white"
-      ? 3.5 + config.frostOpacity * 5.5
+      ? 3.2 + config.frostOpacity * 5.0
       : config.theme === "grey1200"
-      ? 4.5 + config.frostOpacity * 6.0
-      : 5.5 + config.frostOpacity * 8.5;
+      ? 4.2 + config.frostOpacity * 5.8
+      : 5.5 + config.frostOpacity * 8.0;
   bCtx.filter = `blur(${blurPx.toFixed(1)}px) saturate(112%)`;
   bCtx.drawImage(sharpBuf, 0, 0);
   bCtx.filter = "none";
@@ -372,9 +374,9 @@ export function renderRefractedGlassPatch(
 
   const meniscusZone =
     config.theme === "white"
-      ? Math.min(9, Math.min(w, h) * 0.16)
+      ? Math.min(8, Math.min(w, h) * 0.15)
       : Math.min(15, Math.min(w, h) * 0.24);
-  const maxDisplace = config.theme === "white" ? 4.5 : 10.5;
+  const maxDisplace = config.theme === "white" ? 4.0 : 10.5;
 
   const sampleBilinear = (buf: Uint8ClampedArray, fx: number, fy: number): [number, number, number] => {
     const cx0 = Math.max(0, Math.min(sw - 1, fx));
@@ -391,16 +393,14 @@ export function renderRefractedGlassPatch(
     const i01 = (y1 * sw + x0) * 4;
     const i11 = (y1 * sw + x1) * 4;
 
-    const rCol =
+    return [
       (buf[i00] * (1 - tx) + buf[i10] * tx) * (1 - ty) +
-      (buf[i01] * (1 - tx) + buf[i11] * tx) * ty;
-    const gCol =
+        (buf[i01] * (1 - tx) + buf[i11] * tx) * ty,
       (buf[i00 + 1] * (1 - tx) + buf[i10 + 1] * tx) * (1 - ty) +
-      (buf[i01 + 1] * (1 - tx) + buf[i11 + 1] * tx) * ty;
-    const bCol =
+        (buf[i01 + 1] * (1 - tx) + buf[i11 + 1] * tx) * ty,
       (buf[i00 + 2] * (1 - tx) + buf[i10 + 2] * tx) * (1 - ty) +
-      (buf[i01 + 2] * (1 - tx) + buf[i11 + 2] * tx) * ty;
-    return [rCol, gCol, bCol];
+        (buf[i01 + 2] * (1 - tx) + buf[i11 + 2] * tx) * ty,
+    ];
   };
 
   for (let y = 0; y < h; y++) {
@@ -420,13 +420,20 @@ export function renderRefractedGlassPatch(
       const baseSampleX = x + pad - nx * displaceMag;
       const baseSampleY = y + pad - ny * displaceMag;
 
-      const dispSpread = config.theme === "white" ? 0.45 : 1.0;
-      const edgeClarity = config.theme === "white" ? lensFactor * 0.25 : lensFactor * 0.42;
+      const dispSpread = config.theme === "white" ? 0.4 : 1.0;
+      const edgeClarity = config.theme === "white" ? lensFactor * 0.22 : lensFactor * 0.42;
 
-      const [brR] = sampleBilinear(blurPixels, baseSampleX - nx * lensFactor * dispSpread, baseSampleY - ny * lensFactor * dispSpread);
+      const [brR] = sampleBilinear(
+        blurPixels,
+        baseSampleX - nx * lensFactor * dispSpread,
+        baseSampleY - ny * lensFactor * dispSpread
+      );
       const [, brG] = sampleBilinear(blurPixels, baseSampleX, baseSampleY);
-      const [, , brB] = sampleBilinear(blurPixels, baseSampleX + nx * lensFactor * dispSpread, baseSampleY + ny * lensFactor * dispSpread);
-
+      const [, , brB] = sampleBilinear(
+        blurPixels,
+        baseSampleX + nx * lensFactor * dispSpread,
+        baseSampleY + ny * lensFactor * dispSpread
+      );
       const [shR, shG, shB] = sampleBilinear(sharpPixels, baseSampleX, baseSampleY);
 
       const refrR = brR * (1 - edgeClarity) + shR * edgeClarity;

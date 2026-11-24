@@ -1,11 +1,13 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
+import { PAGE_ASSETS, BG_ASSETS } from "@/lib/assetPaths";
 import {
   BackgroundTheme,
   FormatRatio,
   PanelShape,
   FORMAT_DIMENSIONS,
+  LOCKED_THEME_OPACITY,
   renderStandaloneGlassPanel,
   renderRefractedGlassPatch,
   generateStandaloneGlassSvg,
@@ -22,15 +24,10 @@ type AppScreen =
   | "opt3-bg-select"
   | "opt3-sheet";
 
-const LOCKED_THEME_OPACITY: Record<BackgroundTheme, number> = {
-  imagery: 35,
-  grey1200: 40,
-  white: 80,
-};
-
 interface StickerCategory {
   id: string;
   title: string;
+  count: number;
   shape: PanelShape;
   sizes: [number, number][];
 }
@@ -39,6 +36,7 @@ const STICKER_CATEGORIES: StickerCategory[] = [
   {
     id: "squares",
     title: "Square Text Panels",
+    count: 20,
     shape: "text-panel",
     sizes: [
       [120, 120], [160, 160], [200, 200], [240, 240], [280, 280],
@@ -50,6 +48,7 @@ const STICKER_CATEGORIES: StickerCategory[] = [
   {
     id: "horizontal",
     title: "Horizontal Text Panels",
+    count: 20,
     shape: "text-panel",
     sizes: [
       [330, 110], [420, 110], [480, 140], [560, 160], [640, 180],
@@ -61,6 +60,7 @@ const STICKER_CATEGORIES: StickerCategory[] = [
   {
     id: "vertical",
     title: "Vertical Text Panels",
+    count: 20,
     shape: "text-panel",
     sizes: [
       [260, 360], [300, 420], [340, 480], [380, 520], [420, 560],
@@ -72,6 +72,7 @@ const STICKER_CATEGORIES: StickerCategory[] = [
   {
     id: "pills",
     title: "CTA Pills",
+    count: 10,
     shape: "cta-pill",
     sizes: [
       [160, 52], [205, 64], [205, 80], [260, 72], [300, 80],
@@ -81,6 +82,7 @@ const STICKER_CATEGORIES: StickerCategory[] = [
   {
     id: "circles",
     title: "Circles",
+    count: 10,
     shape: "circle",
     sizes: [
       [56, 56], [72, 72], [88, 88], [104, 104], [120, 120],
@@ -117,7 +119,7 @@ export default function LiquidGlassGeneratorApp() {
   const [loadedBgImg, setLoadedBgImg] = useState<HTMLImageElement | null>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  const applyThemeWithCalibratedOpacity = (nextTheme: BackgroundTheme) => {
+  const selectThemeAndDefaultOpacity = (nextTheme: BackgroundTheme) => {
     setTheme(nextTheme);
     setOpacitySlider(LOCKED_THEME_OPACITY[nextTheme]);
   };
@@ -129,10 +131,9 @@ export default function LiquidGlassGeneratorApp() {
   }, []);
 
   const getOption1BgUrl = useCallback(() => {
-    const folder = FORMAT_DIMENSIONS[format].folder;
-    if (theme === "white") return `/backgrounds/${folder}/white.jpg`;
-    if (theme === "grey1200") return `/backgrounds/${folder}/grey-1200.jpg`;
-    return `/backgrounds/${folder}/image-option-${imageryOption}.jpg`;
+    if (theme === "white") return BG_ASSETS[format]?.white || "";
+    if (theme === "grey1200") return BG_ASSETS[format]?.grey1200 || "";
+    return BG_ASSETS[format]?.imagery?.[imageryOption] || "";
   }, [format, theme, imageryOption]);
 
   const stageDims =
@@ -159,10 +160,10 @@ export default function LiquidGlassGeneratorApp() {
       setLoadedBgImg(img);
       const targetW = screen === "opt2-workspace" ? img.naturalWidth : FORMAT_DIMENSIONS[format].width;
       const targetH = screen === "opt2-workspace" ? img.naturalHeight : FORMAT_DIMENSIONS[format].height;
-      setPanelPos((prev) => ({
-        x: Math.max(0, Math.min(targetW - Math.max(60, parsedW), prev.x || Math.round((targetW - parsedW) / 2))),
-        y: Math.max(0, Math.min(targetH - Math.max(60, parsedH), prev.y || Math.round((targetH - parsedH) / 2))),
-      }));
+      setPanelPos({
+        x: Math.max(0, Math.round((targetW - Math.max(60, parsedW)) / 2)),
+        y: Math.max(0, Math.round((targetH - Math.max(60, parsedH)) / 2)),
+      });
     };
     img.src = activeSrc;
   }, [screen, getOption1BgUrl, uploadedBgUrl, format]);
@@ -217,18 +218,7 @@ export default function LiquidGlassGeneratorApp() {
       );
       ctx.drawImage(patch, Math.round(panelPos.x), Math.round(panelPos.y));
     }
-  }, [
-    screen,
-    loadedBgImg,
-    stageDims,
-    hasValidSize,
-    parsedW,
-    parsedH,
-    panelPos,
-    shape,
-    theme,
-    opacitySlider,
-  ]);
+  }, [screen, loadedBgImg, stageDims, hasValidSize, parsedW, parsedH, panelPos, shape, theme, opacitySlider]);
 
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!hasValidSize || !previewCanvasRef.current) return;
@@ -291,8 +281,8 @@ export default function LiquidGlassGeneratorApp() {
     }, "image/png");
   };
 
-  const triggerSvgDownload = (svgString: string, filename: string) => {
-    const blob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
+  const triggerSvgDownload = (svgContent: string, filename: string) => {
+    const blob = new Blob([svgContent], { type: "image/svg+xml;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -313,10 +303,7 @@ export default function LiquidGlassGeneratorApp() {
         theme,
         frostOpacity: opacitySlider / 100,
       });
-      triggerCanvasDownload(
-        isolated,
-        `liquid-glass-${shape}-${theme}-${parsedW}x${parsedH}.png`
-      );
+      triggerCanvasDownload(isolated, `liquid-glass-${shape}-${theme}-${parsedW}x${parsedH}.png`);
     } else if (screen === "opt2-workspace" && loadedBgImg) {
       const out = document.createElement("canvas");
       out.width = uploadedBgDims.width;
@@ -338,14 +325,11 @@ export default function LiquidGlassGeneratorApp() {
         }
       );
       ctx.drawImage(refracted, Math.round(panelPos.x), Math.round(panelPos.y));
-      triggerCanvasDownload(
-        out,
-        `liquid-glass-composited-${uploadedBgDims.width}x${uploadedBgDims.height}.png`
-      );
+      triggerCanvasDownload(out, `liquid-glass-composited-${uploadedBgDims.width}x${uploadedBgDims.height}.png`);
     }
   };
 
-  const handleExportVector = () => {
+  const handleExportSvg = () => {
     if (!hasValidSize) return;
     if (screen === "opt1-workspace") {
       const svgStr = generateStandaloneGlassSvg({
@@ -355,10 +339,7 @@ export default function LiquidGlassGeneratorApp() {
         theme,
         frostOpacity: opacitySlider / 100,
       });
-      triggerSvgDownload(
-        svgStr,
-        `liquid-glass-${shape}-${theme}-${parsedW}x${parsedH}.svg`
-      );
+      triggerSvgDownload(svgStr, `liquid-glass-${shape}-${theme}-${parsedW}x${parsedH}.svg`);
     } else if (screen === "opt2-workspace" && loadedBgImg) {
       const svgStr = generateCompositedGlassSvg(
         loadedBgImg,
@@ -374,10 +355,7 @@ export default function LiquidGlassGeneratorApp() {
           frostOpacity: opacitySlider / 100,
         }
       );
-      triggerSvgDownload(
-        svgStr,
-        `liquid-glass-composited-${uploadedBgDims.width}x${uploadedBgDims.height}.svg`
-      );
+      triggerSvgDownload(svgStr, `liquid-glass-composited-${uploadedBgDims.width}x${uploadedBgDims.height}.svg`);
     }
   };
 
@@ -388,7 +366,7 @@ export default function LiquidGlassGeneratorApp() {
     const img = new Image();
     img.onload = () => {
       const detected = detectImageTheme(img);
-      applyThemeWithCalibratedOpacity(detected);
+      selectThemeAndDefaultOpacity(detected);
       setUploadedBgDims({ width: img.naturalWidth, height: img.naturalHeight });
       setUploadedBgUrl(url);
       const initW = Math.min(480, Math.round(img.naturalWidth * 0.35));
@@ -410,7 +388,7 @@ export default function LiquidGlassGeneratorApp() {
       : STICKER_CATEGORIES.filter((c) => c.id === activeStickerFilter);
 
   return (
-    <main className="min-h-screen w-full bg-[#F4F5F7] flex flex-col items-center justify-start py-4 md:py-6 px-3 md:px-6">
+    <main className="min-h-screen w-full bg-[#F4F5F7] flex flex-col items-center justify-start p-3 md:p-6">
       <input
         ref={fileInputRef}
         type="file"
@@ -419,7 +397,6 @@ export default function LiquidGlassGeneratorApp() {
         onChange={handleUploadFile}
       />
 
-      {/* Top Navigation Bar */}
       <div className="w-full max-w-[1280px] flex items-center justify-between mb-2 px-1 h-8 sticky top-2 z-30">
         {screen !== "home" ? (
           <button
@@ -431,7 +408,7 @@ export default function LiquidGlassGeneratorApp() {
               else if (screen === "opt3-sheet") setScreen("opt3-bg-select");
               else setScreen("home");
             }}
-            className="text-xs font-medium text-neutral-700 hover:text-neutral-950 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/95 backdrop-blur border border-neutral-200 shadow-sm transition cursor-pointer"
+            className="text-xs font-medium text-neutral-700 hover:text-neutral-950 flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/95 backdrop-blur border border-neutral-200 shadow-sm transition cursor-pointer"
           >
             ← Back
           </button>
@@ -441,7 +418,7 @@ export default function LiquidGlassGeneratorApp() {
         {screen !== "home" && (
           <button
             onClick={() => setScreen("home")}
-            className="text-xs font-medium text-neutral-600 hover:text-neutral-950 px-3 py-1.5 rounded-full bg-white/90 backdrop-blur border border-neutral-200 shadow-sm transition cursor-pointer"
+            className="text-xs font-medium text-neutral-600 hover:text-neutral-950 px-3 py-1 rounded-full bg-white/90 backdrop-blur border border-neutral-200 shadow-sm transition cursor-pointer"
           >
             Start over
           </button>
@@ -450,11 +427,10 @@ export default function LiquidGlassGeneratorApp() {
 
       {screen !== "opt3-sheet" ? (
         <div className="relative w-full max-w-[1280px] aspect-[16/9] bg-white rounded-2xl shadow-xl overflow-hidden border border-neutral-200/80 select-none">
-          {/* 1. MAIN LANDING PAGE */}
           {screen === "home" && (
             <div className="relative w-full h-full">
               <img
-                src="/pages/cover-16-9.jpg"
+                src={PAGE_ASSETS.cover16_9}
                 alt="Welcome to our glass panel and pill generator"
                 className="w-full h-full object-cover"
               />
@@ -479,17 +455,16 @@ export default function LiquidGlassGeneratorApp() {
             </div>
           )}
 
-          {/* 2. OPTION 1 — SELECT BACKGROUND TYPE */}
           {screen === "opt1-bg-select" && (
             <div className="relative w-full h-full">
               <img
-                src="/pages/export-just-panel-cover.jpg"
+                src={PAGE_ASSETS.exportJustPanelCover}
                 alt="Export just a panel to size"
                 className="w-full h-full object-cover"
               />
               <button
                 onClick={() => {
-                  applyThemeWithCalibratedOpacity("imagery");
+                  selectThemeAndDefaultOpacity("imagery");
                   setScreen("opt1-imagery-select");
                 }}
                 style={{ left: "11%", top: "74%", width: "17%", height: "16%" }}
@@ -498,7 +473,7 @@ export default function LiquidGlassGeneratorApp() {
               />
               <button
                 onClick={() => {
-                  applyThemeWithCalibratedOpacity("grey1200");
+                  selectThemeAndDefaultOpacity("grey1200");
                   setFormat("1:1");
                   setScreen("opt1-workspace");
                 }}
@@ -508,7 +483,7 @@ export default function LiquidGlassGeneratorApp() {
               />
               <button
                 onClick={() => {
-                  applyThemeWithCalibratedOpacity("white");
+                  selectThemeAndDefaultOpacity("white");
                   setFormat("1:1");
                   setScreen("opt1-workspace");
                 }}
@@ -519,11 +494,10 @@ export default function LiquidGlassGeneratorApp() {
             </div>
           )}
 
-          {/* 3. OPTION 1 — FULL BLEED 4-IMAGE PICKER */}
           {screen === "opt1-imagery-select" && (
             <div className="relative w-full h-full">
               <img
-                src="/pages/full-bleed-image-cover.jpg"
+                src={PAGE_ASSETS.fullBleedImageCover}
                 alt="Select an example background"
                 className="w-full h-full object-cover"
               />
@@ -534,7 +508,7 @@ export default function LiquidGlassGeneratorApp() {
                     key={optNum}
                     onClick={() => {
                       setImageryOption(optNum);
-                      applyThemeWithCalibratedOpacity("imagery");
+                      selectThemeAndDefaultOpacity("imagery");
                       setFormat("1:1");
                       setScreen("opt1-workspace");
                     }}
@@ -552,11 +526,10 @@ export default function LiquidGlassGeneratorApp() {
             </div>
           )}
 
-          {/* 4. OPTION 2 — UPLOAD COVER */}
           {screen === "opt2-upload" && (
             <div className="relative w-full h-full">
               <img
-                src="/pages/export-on-background-cover.jpg"
+                src={PAGE_ASSETS.exportOnBgCover}
                 alt="Export a panel on your background"
                 className="w-full h-full object-cover"
               />
@@ -569,14 +542,13 @@ export default function LiquidGlassGeneratorApp() {
             </div>
           )}
 
-          {/* 5. WORKSPACE FOR OPTION 1 & OPTION 2 */}
           {(screen === "opt1-workspace" || screen === "opt2-workspace") && (
             <div className="relative w-full h-full">
               <img
                 src={
                   screen === "opt1-workspace"
-                    ? "/pages/export-just-panel-internal.jpg"
-                    : "/pages/export-on-background-internal.jpg"
+                    ? PAGE_ASSETS.exportJustPanelInternal
+                    : PAGE_ASSETS.exportOnBgInternal
                 }
                 alt="Workspace"
                 className="w-full h-full object-cover pointer-events-none"
@@ -600,7 +572,7 @@ export default function LiquidGlassGeneratorApp() {
               </div>
 
               <div
-                style={{ left: "50.1%", top: "51.5%", width: "43%", height: "45%" }}
+                style={{ left: "50.1%", top: "51.5%", width: "43%", height: "44%" }}
                 className="absolute flex flex-col justify-start gap-2.5 text-[#121317]"
               >
                 <div className="flex flex-wrap items-end gap-4">
@@ -652,7 +624,7 @@ export default function LiquidGlassGeneratorApp() {
                       </label>
                       <select
                         value={theme}
-                        onChange={(e) => applyThemeWithCalibratedOpacity(e.target.value as BackgroundTheme)}
+                        onChange={(e) => selectThemeAndDefaultOpacity(e.target.value as BackgroundTheme)}
                         className="h-8 px-2.5 text-xs font-medium bg-white border border-neutral-800 rounded-md focus:outline-none"
                       >
                         <option value="imagery">Full bleed image</option>
@@ -677,6 +649,7 @@ export default function LiquidGlassGeneratorApp() {
                         setWidthInput(e.target.value);
                         if (shape === "circle") setHeightInput(e.target.value);
                       }}
+                      placeholder="420"
                       className="w-20 h-8 px-2 text-xs bg-white border border-neutral-800 rounded-md focus:outline-none"
                     />
                     <span>{shape === "circle" ? "px diameter" : "px wide x"}</span>
@@ -688,6 +661,7 @@ export default function LiquidGlassGeneratorApp() {
                           max={4000}
                           value={heightInput}
                           onChange={(e) => setHeightInput(e.target.value)}
+                          placeholder="180"
                           className="w-20 h-8 px-2 text-xs bg-white border border-neutral-800 rounded-md focus:outline-none"
                         />
                         <span>px high</span>
@@ -713,8 +687,7 @@ export default function LiquidGlassGeneratorApp() {
                   />
                 </div>
 
-                {/* Dual Export Buttons: Export .png & Export vector */}
-                <div className="pt-1 flex flex-col gap-1.5 max-w-[380px]">
+                <div className="pt-1 flex flex-col gap-1.5 max-w-[360px]">
                   <div className="flex flex-wrap items-center gap-2.5">
                     <button
                       onClick={handleExportPng}
@@ -724,34 +697,33 @@ export default function LiquidGlassGeneratorApp() {
                       Export .png
                     </button>
                     <button
-                      onClick={handleExportVector}
+                      onClick={handleExportSvg}
                       disabled={!hasValidSize}
                       className="px-5 py-1.5 rounded-full border-[1.5px] border-neutral-900 bg-white hover:bg-neutral-900 hover:text-white disabled:opacity-40 text-xs font-semibold transition cursor-pointer"
                     >
-                      Export vector
+                      Export .svg
                     </button>
                   </div>
                   <span className="text-[11px] text-neutral-500">
                     {screen === "opt1-workspace"
-                      ? `Panel only: ${parsedW || 0}×${parsedH || 0}px`
-                      : `Set on background: ${uploadedBgDims.width}×${uploadedBgDims.height}px`}
+                      ? `Exports ${parsedW || 0}×${parsedH || 0}px panel only`
+                      : `Exports ${uploadedBgDims.width}×${uploadedBgDims.height}px image + panel`}
                   </span>
                 </div>
               </div>
             </div>
           )}
 
-          {/* 6. OPTION 3 — STICKER SHEET BACKGROUND SELECTOR */}
           {screen === "opt3-bg-select" && (
             <div className="relative w-full h-full">
               <img
-                src="/pages/sticker-sheet-cover.jpg"
+                src={PAGE_ASSETS.stickerSheetCover}
                 alt="Sticker sheet"
                 className="w-full h-full object-cover"
               />
               <button
                 onClick={() => {
-                  applyThemeWithCalibratedOpacity("imagery");
+                  selectThemeAndDefaultOpacity("imagery");
                   setActiveStickerFilter("all");
                   setOpenStickerMenuKey(null);
                   setScreen("opt3-sheet");
@@ -762,7 +734,7 @@ export default function LiquidGlassGeneratorApp() {
               />
               <button
                 onClick={() => {
-                  applyThemeWithCalibratedOpacity("grey1200");
+                  selectThemeAndDefaultOpacity("grey1200");
                   setActiveStickerFilter("all");
                   setOpenStickerMenuKey(null);
                   setScreen("opt3-sheet");
@@ -773,7 +745,7 @@ export default function LiquidGlassGeneratorApp() {
               />
               <button
                 onClick={() => {
-                  applyThemeWithCalibratedOpacity("white");
+                  selectThemeAndDefaultOpacity("white");
                   setActiveStickerFilter("all");
                   setOpenStickerMenuKey(null);
                   setScreen("opt3-sheet");
@@ -786,23 +758,27 @@ export default function LiquidGlassGeneratorApp() {
           )}
         </div>
       ) : (
-        /* 7. OPTION 3 — FULL SCROLLING 80-ASSET STICKER SHEET */
-        <div className="w-full max-w-[1280px] bg-white rounded-2xl shadow-xl overflow-hidden border border-neutral-200/80 flex flex-col">
+        <div className="relative w-full max-w-[1280px] bg-white rounded-2xl shadow-xl overflow-hidden border border-neutral-200/80 flex flex-col">
+          {/* Supplied Top Brand Banner for Sticker Sheet */}
           <div className="relative w-full aspect-[16/4.4] overflow-hidden bg-white">
             <img
               src={
                 theme === "grey1200"
-                  ? "/pages/sticker-sheet-internal-grey-1200.png"
+                  ? PAGE_ASSETS.stickerSheetGrey1200
                   : theme === "white"
-                  ? "/pages/sticker-sheet-internal-white.jpg"
-                  : "/pages/sticker-sheet-internal-imagery.jpg"
+                  ? PAGE_ASSETS.stickerSheetWhite
+                  : PAGE_ASSETS.stickerSheetImagery
               }
               alt={`Sticker sheet ${theme}`}
               className="w-full h-auto object-cover object-top pointer-events-none"
             />
           </div>
 
-          <div className="w-full px-6 py-3.5 bg-white border-y border-neutral-200 flex flex-wrap items-center justify-between gap-3 sticky top-12 z-20">
+          {/* Category Filter Bar */}
+          <div className="w-full bg-white px-6 py-4 border-b border-neutral-200 flex flex-wrap items-center justify-between gap-3">
+            <span className="text-xs text-neutral-500">
+              Click any panel to choose <strong>Export .png</strong> or <strong>Export .svg</strong> ({LOCKED_THEME_OPACITY[theme]}% calibrated opacity)
+            </span>
             <div className="flex flex-wrap items-center gap-2">
               {[
                 { id: "all", label: "All (80)" },
@@ -828,11 +804,9 @@ export default function LiquidGlassGeneratorApp() {
                 </button>
               ))}
             </div>
-            <span className="text-xs text-neutral-500">
-              Click any panel to choose Export .png or Export vector ({LOCKED_THEME_OPACITY[theme]}% opacity)
-            </span>
           </div>
 
+          {/* Scrolling 80-Asset Gallery */}
           <div
             className={`w-full px-6 sm:px-10 py-10 space-y-12 ${
               theme === "grey1200"
@@ -844,11 +818,11 @@ export default function LiquidGlassGeneratorApp() {
           >
             {visibleCategories.map((cat) => (
               <section key={cat.id} className="space-y-4">
-                <div className="flex items-baseline justify-between border-b border-current/15 pb-2">
-                  <h3 className="text-lg font-semibold tracking-tight">{cat.title}</h3>
-                  <span className="text-xs opacity-60">{cat.sizes.length} sizes</span>
+                <div className="flex items-baseline justify-between border-b pb-2 border-current/15">
+                  <h3 className="text-lg font-medium tracking-tight">{cat.title}</h3>
+                  <span className="text-xs opacity-60">{cat.count} sizes</span>
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-5">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                   {cat.sizes.map(([w, h]) => {
                     const itemKey = `${cat.id}-${w}x${h}`;
                     return (
@@ -862,13 +836,13 @@ export default function LiquidGlassGeneratorApp() {
                         onToggleMenu={(nextOpen) =>
                           setOpenStickerMenuKey(nextOpen ? itemKey : null)
                         }
-                        onDownloadPng={(canvas) =>
+                        onExportPng={(canvas) =>
                           triggerCanvasDownload(
                             canvas,
                             `sticker-${cat.shape}-${theme}-${w}x${h}.png`
                           )
                         }
-                        onDownloadSvg={(svgStr) =>
+                        onExportSvg={(svgStr) =>
                           triggerSvgDownload(
                             svgStr,
                             `sticker-${cat.shape}-${theme}-${w}x${h}.svg`
@@ -894,8 +868,8 @@ function StickerCard({
   theme,
   isOpen,
   onToggleMenu,
-  onDownloadPng,
-  onDownloadSvg,
+  onExportPng,
+  onExportSvg,
 }: {
   width: number;
   height: number;
@@ -903,11 +877,11 @@ function StickerCard({
   theme: BackgroundTheme;
   isOpen: boolean;
   onToggleMenu: (open: boolean) => void;
-  onDownloadPng: (canvas: HTMLCanvasElement) => void;
-  onDownloadSvg: (svgStr: string) => void;
+  onExportPng: (canvas: HTMLCanvasElement) => void;
+  onExportSvg: (svgStr: string) => void;
 }) {
   const [previewUrl, setPreviewUrl] = useState<string>("");
-  const [isExporting, setIsExporting] = useState<boolean>(false);
+  const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const cardRef = useRef<HTMLDivElement | null>(null);
   const lockedOpacity = LOCKED_THEME_OPACITY[theme] / 100;
 
@@ -915,19 +889,17 @@ function StickerCard({
     setPreviewUrl("");
     const el = cardRef.current;
     if (!el) return;
-
     let cancelled = false;
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0]?.isIntersecting && !cancelled) {
           observer.disconnect();
-          const maxPreviewDim = 240;
+          const maxPreviewDim = 220;
           const scale = Math.min(1, maxPreviewDim / Math.max(width, height));
           const pw = Math.max(20, Math.round(width * scale));
           const ph = Math.max(20, Math.round(height * scale));
           const scaledRadius = Math.max(4, 20 * scale);
-
-          const thumb = renderStandaloneGlassPanel({
+          const thumbCanvas = renderStandaloneGlassPanel({
             width: pw,
             height: ph,
             shape,
@@ -936,11 +908,11 @@ function StickerCard({
             customRadius: scaledRadius,
           });
           if (!cancelled) {
-            setPreviewUrl(thumb.toDataURL("image/png"));
+            setPreviewUrl(thumbCanvas.toDataURL("image/png"));
           }
         }
       },
-      { rootMargin: "250px" }
+      { rootMargin: "200px" }
     );
     observer.observe(el);
     return () => {
@@ -949,37 +921,6 @@ function StickerCard({
     };
   }, [width, height, shape, theme, lockedOpacity]);
 
-  const handleChoosePng = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (isExporting) return;
-    setIsExporting(true);
-    requestAnimationFrame(() => {
-      const fullCanvas = renderStandaloneGlassPanel({
-        width,
-        height,
-        shape,
-        theme,
-        frostOpacity: lockedOpacity,
-      });
-      onDownloadPng(fullCanvas);
-      setIsExporting(false);
-      onToggleMenu(false);
-    });
-  };
-
-  const handleChooseVector = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    const svgStr = generateStandaloneGlassSvg({
-      width,
-      height,
-      shape,
-      theme,
-      frostOpacity: lockedOpacity,
-    });
-    onDownloadSvg(svgStr);
-    onToggleMenu(false);
-  };
-
   return (
     <div
       ref={cardRef}
@@ -987,10 +928,10 @@ function StickerCard({
         e.stopPropagation();
         onToggleMenu(!isOpen);
       }}
-      className={`relative group flex flex-col items-end justify-between gap-2 p-4 rounded-xl border transition cursor-pointer w-full ${
+      className={`relative group flex flex-col items-end justify-between gap-2 p-3.5 rounded-xl border transition cursor-pointer w-full ${
         theme === "white"
-          ? "border-neutral-200/90 bg-white/80 hover:bg-white hover:border-neutral-400 shadow-sm"
-          : "border-white/10 bg-white/[0.02] hover:bg-white/[0.06] hover:border-white/25"
+          ? "border-neutral-200/80 hover:border-neutral-400 bg-white/70 hover:bg-white"
+          : "border-white/10 hover:border-white/25 bg-white/[0.02] hover:bg-white/[0.06]"
       } ${isOpen ? "ring-2 ring-blue-500/70" : ""}`}
     >
       <div className="relative w-full h-28 flex items-center justify-center overflow-hidden p-1">
@@ -1006,7 +947,6 @@ function StickerCard({
           <div className="w-16 h-10 rounded-lg bg-neutral-400/10 animate-pulse" />
         )}
 
-        {/* Stacked Mini Dropdown Menu Over the Panel Image */}
         {isOpen && (
           <div
             onClick={(e) => e.stopPropagation()}
@@ -1015,17 +955,44 @@ function StickerCard({
             <div className="w-40 rounded-xl bg-white text-[#121317] shadow-xl border border-neutral-200 overflow-hidden flex flex-col divide-y divide-neutral-100">
               <button
                 type="button"
-                onClick={handleChoosePng}
-                className="w-full px-3.5 py-2.5 text-xs font-semibold text-left hover:bg-neutral-100 transition cursor-pointer"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (isGenerating) return;
+                  setIsGenerating(true);
+                  requestAnimationFrame(() => {
+                    const fullCanvas = renderStandaloneGlassPanel({
+                      width,
+                      height,
+                      shape,
+                      theme,
+                      frostOpacity: lockedOpacity,
+                    });
+                    onExportPng(fullCanvas);
+                    setIsGenerating(false);
+                    onToggleMenu(false);
+                  });
+                }}
+                className="w-full px-3.5 py-2.5 text-xs font-semibold text-left hover:bg-neutral-100 flex items-center justify-between transition cursor-pointer"
               >
-                {isExporting ? "Exporting..." : "Export .png"}
+                <span>{isGenerating ? "Exporting..." : "Export .png"}</span>
               </button>
               <button
                 type="button"
-                onClick={handleChooseVector}
-                className="w-full px-3.5 py-2.5 text-xs font-semibold text-left hover:bg-neutral-100 transition cursor-pointer"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const svgStr = generateStandaloneGlassSvg({
+                    width,
+                    height,
+                    shape,
+                    theme,
+                    frostOpacity: lockedOpacity,
+                  });
+                  onExportSvg(svgStr);
+                  onToggleMenu(false);
+                }}
+                className="w-full px-3.5 py-2.5 text-xs font-semibold text-left hover:bg-neutral-100 flex items-center justify-between transition cursor-pointer"
               >
-                Export vector
+                <span>Export .svg</span>
               </button>
             </div>
           </div>
@@ -1035,7 +1002,7 @@ function StickerCard({
       <span
         className={`text-[11px] font-medium tracking-tight ${
           theme === "white" ? "text-neutral-700" : "text-neutral-300"
-        } group-hover:underline`}
+        }`}
       >
         {width}px X {height}px
       </span>
