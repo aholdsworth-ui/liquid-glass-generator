@@ -1,5 +1,7 @@
 export type BackgroundTheme = "imagery" | "grey1200" | "white";
 export type PanelShape = "text-panel" | "circle" | "cta-pill";
+export type GlassTheme = BackgroundTheme;
+export type GlassShape = PanelShape;
 export type FormatRatio = "1:1" | "4:5" | "9:16" | "16:9";
 
 export interface GlassRenderConfig {
@@ -10,19 +12,6 @@ export interface GlassRenderConfig {
   frostOpacity: number;
   customRadius?: number;
 }
-
-export const FORMAT_DIMENSIONS: Record<FormatRatio, { width: number; height: number; folder: string }> = {
-  "1:1": { width: 1080, height: 1080, folder: "1-1" },
-  "4:5": { width: 1080, height: 1350, folder: "4-5" },
-  "9:16": { width: 1080, height: 1920, folder: "9-16" },
-  "16:9": { width: 1920, height: 1080, folder: "16-9" },
-};
-
-export const LOCKED_THEME_OPACITY: Record<BackgroundTheme, number> = {
-  imagery: 35,
-  grey1200: 40,
-  white: 80,
-};
 
 export function getCornerRadius(
   width: number,
@@ -75,21 +64,22 @@ export function renderStandaloneGlassPanel(config: GlassRenderConfig): HTMLCanva
   const bx = w / 2;
   const by = h / 2;
 
-  const frostSlider = Math.max(0, Math.min(1, config.frostOpacity));
+  const s = Math.max(0, Math.min(1, config.frostOpacity));
   const baseFrostAlpha =
     config.theme === "grey1200"
-      ? 0.028 + frostSlider * 0.128
+      ? 0.028 + s * 0.128
       : config.theme === "white"
-      ? 0.03 + frostSlider * 0.214
-      : 0.04 + frostSlider * 0.18;
+      ? 0.03 + s * 0.214
+      : 0.04 + s * 0.18;
 
   const bevelWidth =
     config.theme === "white"
       ? Math.min(5.5, Math.min(w, h) * 0.11)
       : Math.min(10.5, Math.min(w, h) * 0.18);
 
-  const light1X = -0.68, light1Y = -0.73;
-  const light2X = 0.55, light2Y = 0.83;
+  const light1X = -0.68,
+    light1Y = -0.73;
+  const light2X = 0.55;
 
   for (let y = 0; y < h; y++) {
     const py = y + 0.5 - cy;
@@ -106,21 +96,30 @@ export function renderStandaloneGlassPanel(config: GlassRenderConfig): HTMLCanva
       const [nx, ny] = sdRoundBoxNormal(px, py, bx, by, r);
 
       const catchTopLeft = Math.max(0, nx * light1X + ny * light1Y);
-      const catchBottomRight = Math.max(0, nx * light2X + ny * light2Y);
+      const catchBottomRight = Math.max(0, nx * light2X + ny * 0.83);
       const directionalRim =
         0.35 + 0.65 * Math.pow(catchTopLeft, 1.35) + 0.38 * Math.pow(catchBottomRight, 1.65);
 
       const sheenGrad = 1.0 - 0.2 * vNorm + 0.08 * (1 - uNorm);
-      let frostR = 252, frostG = 253, frostB = 255;
+      let frostR = 252,
+        frostG = 253,
+        frostB = 255;
       if (config.theme === "white") {
-        frostR = 242; frostG = 245; frostB = 250;
+        frostR = 242;
+        frostG = 245;
+        frostB = 250;
       } else if (config.theme === "grey1200") {
-        frostR = 206; frostG = 212; frostB = 222;
+        frostR = 206;
+        frostG = 212;
+        frostB = 222;
       }
       const frostA = Math.min(0.6, baseFrostAlpha * sheenGrad);
 
       const meniscusBand = Math.exp(-Math.pow(inwardDist / Math.max(1.7, bevelWidth * 0.44), 1.75));
-      let bevelR = 255, bevelG = 255, bevelB = 255, bevelA = 0;
+      let bevelR = 255,
+        bevelG = 255,
+        bevelB = 255,
+        bevelA = 0;
 
       if (config.theme === "white") {
         const outerKeyline = 1 - smoothstep(0.35, 1.4, inwardDist);
@@ -157,7 +156,9 @@ export function renderStandaloneGlassPanel(config: GlassRenderConfig): HTMLCanva
       }
 
       const outA = bevelA + frostA * (1 - bevelA);
-      let outR = 255, outG = 255, outB = 255;
+      let outR = 255,
+        outG = 255,
+        outB = 255;
       if (outA > 0.0001) {
         outR = (bevelR * bevelA + frostR * frostA * (1 - bevelA)) / outA;
         outG = (bevelG * bevelA + frostG * frostA * (1 - bevelA)) / outA;
@@ -179,7 +180,7 @@ export function renderStandaloneGlassPanel(config: GlassRenderConfig): HTMLCanva
 export function generateStandaloneGlassSvg(config: GlassRenderConfig): string {
   const w = Math.max(16, Math.round(config.width));
   const h = Math.max(16, Math.round(config.height));
-  const r = getCornerRadius(w, h, config.shape, 20);
+  const r = getCornerRadius(w, h, config.shape, config.customRadius ?? 20);
   const s = Math.max(0, Math.min(1, config.frostOpacity));
 
   const baseFrostAlpha =
@@ -263,7 +264,7 @@ export function generateStandaloneGlassSvg(config: GlassRenderConfig): string {
 }
 
 export function generateCompositedGlassSvg(
-  bgImage: CanvasImageSource,
+  bgSource: CanvasImageSource,
   stageWidth: number,
   stageHeight: number,
   panelX: number,
@@ -274,7 +275,7 @@ export function generateCompositedGlassSvg(
   bgCanvas.width = stageWidth;
   bgCanvas.height = stageHeight;
   const bCtx = bgCanvas.getContext("2d")!;
-  bCtx.drawImage(bgImage, 0, 0, stageWidth, stageHeight);
+  bCtx.drawImage(bgSource, 0, 0, stageWidth, stageHeight);
   const bgDataUrl = bgCanvas.toDataURL("image/png");
 
   const w = Math.max(24, Math.round(config.width));
@@ -324,7 +325,7 @@ export function renderRefractedGlassPatch(
   const h = Math.max(24, Math.round(config.height));
   const r = getCornerRadius(w, h, config.shape, 20);
 
-  const pad = 30;
+  const pad = 32;
   const sx = Math.floor(panelX - pad);
   const sy = Math.floor(panelY - pad);
   const sw = w + pad * 2;
@@ -344,10 +345,10 @@ export function renderRefractedGlassPatch(
   const bCtx = blurBuf.getContext("2d", { willReadFrequently: true })!;
   const blurPx =
     config.theme === "white"
-      ? 3.2 + config.frostOpacity * 5.0
+      ? 3.5 + config.frostOpacity * 5.5
       : config.theme === "grey1200"
-      ? 4.2 + config.frostOpacity * 5.8
-      : 5.5 + config.frostOpacity * 8.0;
+      ? 4.5 + config.frostOpacity * 6.0
+      : 5.5 + config.frostOpacity * 8.5;
   bCtx.filter = `blur(${blurPx.toFixed(1)}px) saturate(112%)`;
   bCtx.drawImage(sharpBuf, 0, 0);
   bCtx.filter = "none";
@@ -374,9 +375,9 @@ export function renderRefractedGlassPatch(
 
   const meniscusZone =
     config.theme === "white"
-      ? Math.min(8, Math.min(w, h) * 0.15)
+      ? Math.min(9, Math.min(w, h) * 0.16)
       : Math.min(15, Math.min(w, h) * 0.24);
-  const maxDisplace = config.theme === "white" ? 4.0 : 10.5;
+  const maxDisplace = config.theme === "white" ? 4.5 : 10.5;
 
   const sampleBilinear = (buf: Uint8ClampedArray, fx: number, fy: number): [number, number, number] => {
     const cx0 = Math.max(0, Math.min(sw - 1, fx));
@@ -420,8 +421,8 @@ export function renderRefractedGlassPatch(
       const baseSampleX = x + pad - nx * displaceMag;
       const baseSampleY = y + pad - ny * displaceMag;
 
-      const dispSpread = config.theme === "white" ? 0.4 : 1.0;
-      const edgeClarity = config.theme === "white" ? lensFactor * 0.22 : lensFactor * 0.42;
+      const dispSpread = config.theme === "white" ? 0.45 : 1.0;
+      const edgeClarity = config.theme === "white" ? lensFactor * 0.25 : lensFactor * 0.42;
 
       const [brR] = sampleBilinear(
         blurPixels,
@@ -434,6 +435,7 @@ export function renderRefractedGlassPatch(
         baseSampleX + nx * lensFactor * dispSpread,
         baseSampleY + ny * lensFactor * dispSpread
       );
+
       const [shR, shG, shB] = sampleBilinear(sharpPixels, baseSampleX, baseSampleY);
 
       const refrR = brR * (1 - edgeClarity) + shR * edgeClarity;

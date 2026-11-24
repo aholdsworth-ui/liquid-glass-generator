@@ -3,8 +3,9 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { PAGE_ASSETS, BG_ASSETS } from "@/lib/assetPaths";
 import {
-  GlassShape,
-  GlassTheme,
+  PanelShape,
+  BackgroundTheme,
+  FormatRatio,
   renderStandaloneGlassPanel,
   renderRefractedGlassPatch,
   generateStandaloneGlassSvg,
@@ -21,8 +22,6 @@ type ScreenId =
   | "opt3-bg-select"
   | "opt3-sheet";
 
-type FormatRatio = "1:1" | "4:5" | "9:16" | "16:9";
-
 const FORMAT_DIMENSIONS: Record<FormatRatio, { width: number; height: number }> = {
   "1:1": { width: 1080, height: 1080 },
   "4:5": { width: 1080, height: 1350 },
@@ -30,7 +29,7 @@ const FORMAT_DIMENSIONS: Record<FormatRatio, { width: number; height: number }> 
   "16:9": { width: 1920, height: 1080 },
 };
 
-const LOCKED_THEME_OPACITY: Record<GlassTheme, number> = {
+const LOCKED_THEME_OPACITY: Record<BackgroundTheme, number> = {
   imagery: 35,
   grey1200: 40,
   white: 80,
@@ -40,7 +39,7 @@ const STICKER_CATEGORIES: {
   id: string;
   title: string;
   count: number;
-  shape: GlassShape;
+  shape: PanelShape;
   sizes: [number, number][];
 }[] = [
   {
@@ -101,6 +100,10 @@ const STICKER_CATEGORIES: {
   },
 ];
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const bgAssetsAny = BG_ASSETS as Record<string, any>;
+const pageAssetsAny = PAGE_ASSETS as Record<string, string>;
+
 function StickerCard({
   width,
   height,
@@ -113,12 +116,12 @@ function StickerCard({
 }: {
   width: number;
   height: number;
-  shape: GlassShape;
-  theme: GlassTheme;
+  shape: PanelShape;
+  theme: BackgroundTheme;
   isOpen: boolean;
   onToggleMenu: (next: boolean) => void;
-  onExportPng: (canvas: HTMLCanvasElement, sizeStr: string, shape: GlassShape) => void;
-  onExportSvg: (svgStr: string, sizeStr: string, shape: GlassShape) => void;
+  onExportPng: (canvas: HTMLCanvasElement, sizeStr: string, shape: PanelShape) => void;
+  onExportSvg: (svgStr: string, sizeStr: string, shape: PanelShape) => void;
 }) {
   const [previewUrl, setPreviewUrl] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
@@ -257,10 +260,10 @@ function StickerCard({
 
 export default function Page() {
   const [screen, setScreen] = useState<ScreenId>("home");
-  const [theme, setTheme] = useState<GlassTheme>("imagery");
+  const [theme, setTheme] = useState<BackgroundTheme>("imagery");
   const [imageryOption, setImageryOption] = useState<number>(1);
   const [format, setFormat] = useState<FormatRatio>("1:1");
-  const [shape, setShape] = useState<GlassShape>("text-panel");
+  const [shape, setShape] = useState<PanelShape>("text-panel");
   const [widthInput, setWidthInput] = useState("420");
   const [heightInput, setHeightInput] = useState("180");
   const [opacitySlider, setOpacitySlider] = useState(35);
@@ -287,7 +290,7 @@ export default function Page() {
     shape === "circle" ? parsedW : Math.max(0, parseInt(heightInput || "0", 10) || 0);
   const hasValidSize = parsedW >= 24 && parsedH >= 24;
 
-  const selectThemeAndDefaultOpacity = (nextTheme: GlassTheme) => {
+  const selectThemeAndDefaultOpacity = (nextTheme: BackgroundTheme) => {
     setTheme(nextTheme);
     setOpacitySlider(LOCKED_THEME_OPACITY[nextTheme]);
   };
@@ -300,7 +303,7 @@ export default function Page() {
 
   useEffect(() => {
     if (screen !== "opt1-workspace") return;
-    const ratioAssets = BG_ASSETS[format];
+    const ratioAssets = bgAssetsAny[format];
     if (!ratioAssets) return;
     const src =
       theme === "white"
@@ -574,10 +577,10 @@ export default function Page() {
 
   const stickerHeaderBg =
     theme === "grey1200"
-      ? PAGE_ASSETS.stickerSheetGrey1200
+      ? pageAssetsAny.stickerSheetGrey1200
       : theme === "white"
-      ? PAGE_ASSETS.stickerSheetWhite
-      : PAGE_ASSETS.stickerSheetImagery;
+      ? pageAssetsAny.stickerSheetWhite
+      : pageAssetsAny.stickerSheetImagery;
 
   return (
     <main className="min-h-screen w-full bg-[#F1F3F4] flex flex-col items-center justify-start py-4 md:py-6 px-3 md:px-6 font-sans text-[#121317]">
@@ -632,7 +635,7 @@ export default function Page() {
           {screen === "home" && (
             <>
               <img
-                src={PAGE_ASSETS.cover16_9}
+                src={pageAssetsAny.cover16_9}
                 alt="Welcome to our glass panel and pill generator"
                 className="w-full h-full object-cover"
               />
@@ -660,7 +663,7 @@ export default function Page() {
           {screen === "opt1-bg-select" && (
             <>
               <img
-                src={PAGE_ASSETS.exportJustPanelCover}
+                src={pageAssetsAny.exportJustPanelCover}
                 alt="Export just a panel to size"
                 className="w-full h-full object-cover"
               />
@@ -699,7 +702,7 @@ export default function Page() {
           {screen === "opt1-imagery-select" && (
             <>
               <img
-                src={PAGE_ASSETS.fullBleedImageCover}
+                src={pageAssetsAny.fullBleedImageCover}
                 alt="Select an example background"
                 className="w-full h-full object-cover"
               />
@@ -725,7 +728,7 @@ export default function Page() {
           {screen === "opt2-upload" && (
             <>
               <img
-                src={PAGE_ASSETS.exportOnBgCover}
+                src={pageAssetsAny.exportOnBgCover}
                 alt="Export a panel on your background"
                 className="w-full h-full object-cover"
               />
@@ -743,8 +746,8 @@ export default function Page() {
               <img
                 src={
                   screen === "opt1-workspace"
-                    ? PAGE_ASSETS.exportJustPanelInternal
-                    : PAGE_ASSETS.exportOnBgInternal
+                    ? pageAssetsAny.exportJustPanelInternal
+                    : pageAssetsAny.exportOnBgInternal
                 }
                 alt="Workspace"
                 className="w-full h-full object-cover"
@@ -791,7 +794,7 @@ export default function Page() {
                     <select
                       value={shape}
                       onChange={(e) => {
-                        const next = e.target.value as GlassShape;
+                        const next = e.target.value as PanelShape;
                         setShape(next);
                         if (next === "circle") setHeightInput(widthInput);
                         else if (next === "cta-pill" && parseInt(heightInput, 10) > 140) {
@@ -814,7 +817,7 @@ export default function Page() {
                       <select
                         value={theme}
                         onChange={(e) =>
-                          selectThemeAndDefaultOpacity(e.target.value as GlassTheme)
+                          selectThemeAndDefaultOpacity(e.target.value as BackgroundTheme)
                         }
                         className="h-7 px-2 text-[11px] font-medium bg-white border border-neutral-800 rounded-md focus:outline-none"
                       >
@@ -909,7 +912,7 @@ export default function Page() {
           {screen === "opt3-bg-select" && (
             <>
               <img
-                src={PAGE_ASSETS.stickerSheetCover}
+                src={pageAssetsAny.stickerSheetCover}
                 alt="Sticker sheet"
                 className="w-full h-full object-cover"
               />
