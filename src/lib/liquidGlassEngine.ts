@@ -1,24 +1,18 @@
 export type PanelShape = "text-panel" | "circle" | "cta-pill";
 export type GlassShape = PanelShape;
-export type GlassTheme = "imagery" | "grey1200" | "white";
-export type BackgroundTheme = GlassTheme;
+export type BackgroundTheme = "imagery" | "grey1200" | "white";
+export type GlassTheme = BackgroundTheme;
 export type FormatRatio = "1:1" | "4:5" | "9:16" | "16:9";
 
-export const FORMAT_DIMENSIONS: Record<
-  FormatRatio,
-  { width: number; height: number; label: string }
-> = {
-  "1:1": { width: 1080, height: 1080, label: "1:1 (1080×1080)" },
-  "4:5": { width: 1080, height: 1350, label: "4:5 (1080×1350)" },
-  "9:16": { width: 1080, height: 1920, label: "9:16 (1080×1920)" },
-  "16:9": { width: 1920, height: 1080, label: "16:9 (1920×1080)" },
-};
-
-export const LOCKED_THEME_OPACITY: Record<GlassTheme, number> = {
-  imagery: 35,
-  grey1200: 40,
-  white: 80,
-};
+export interface GlassPanelConfig {
+  width: number;
+  height: number;
+  shape: PanelShape;
+  theme: BackgroundTheme;
+  frostOpacity: number;
+  customRadius?: number;
+  includeShadow?: boolean;
+}
 
 export interface StickerCategory {
   id: string;
@@ -27,6 +21,19 @@ export interface StickerCategory {
   shape: PanelShape;
   sizes: [number, number][];
 }
+
+export const FORMAT_DIMENSIONS: Record<FormatRatio, { width: number; height: number; label: string }> = {
+  "1:1": { width: 1080, height: 1080, label: "1:1 (1080×1080)" },
+  "4:5": { width: 1080, height: 1350, label: "4:5 (1080×1350)" },
+  "9:16": { width: 1080, height: 1920, label: "9:16 (1080×1920)" },
+  "16:9": { width: 1920, height: 1080, label: "16:9 (1920×1080)" },
+};
+
+export const LOCKED_THEME_OPACITY: Record<BackgroundTheme, number> = {
+  imagery: 35,
+  grey1200: 40,
+  white: 80,
+};
 
 export const STICKER_CATEGORIES: StickerCategory[] = [
   {
@@ -87,236 +94,167 @@ export const STICKER_CATEGORIES: StickerCategory[] = [
   },
 ];
 
-export interface StandaloneGlassParams {
-  width: number;
-  height: number;
-  shape: PanelShape;
-  theme: GlassTheme;
-  frostOpacity: number;
-  customRadius?: number;
-  cornerRadius?: number;
-  includeShadow?: boolean;
-}
-export type GlassConfig = StandaloneGlassParams;
-
-export function getCornerRadius(
-  width: number,
-  height: number,
-  shape: PanelShape,
-  customRadius = 20
-): number {
+export function getCornerRadius(width: number, height: number, shape: PanelShape, customRadius = 20): number {
   const maxR = Math.min(width, height) / 2;
-  return shape === "circle" || shape === "cta-pill"
-    ? maxR
-    : Math.min(customRadius, maxR);
+  if (shape === "circle" || shape === "cta-pill") return maxR;
+  return Math.min(customRadius, maxR);
 }
 
-function sdRoundBox(
-  px: number,
-  py: number,
-  bx: number,
-  by: number,
-  r: number
-): number {
-  const qx = Math.abs(px) - bx + r;
-  const qy = Math.abs(py) - by + r;
-  return (
-    Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) +
-    Math.min(Math.max(qx, qy), 0) -
-    r
-  );
-}
-
-function sdRoundBoxNormal(
-  px: number,
-  py: number,
-  bx: number,
-  by: number,
-  r: number
-): [number, number] {
-  const e = 0.5;
-  const dx =
-    sdRoundBox(px + e, py, bx, by, r) - sdRoundBox(px - e, py, bx, by, r);
-  const dy =
-    sdRoundBox(px, py + e, bx, by, r) - sdRoundBox(px, py - e, bx, by, r);
-  const len = Math.hypot(dx, dy) || 1;
-  return [dx / len, dy / len];
-}
-
-function smoothstep(e0: number, e1: number, x: number): number {
-  const t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0)));
-  return t * t * (3 - 2 * t);
-}
-
-function erfcApprox(x: number): number {
-  const z = Math.abs(x);
-  const t = 1 / (1 + 0.5 * z);
-  const poly =
-    1.00002368 +
-    t * (0.37409196 + t * (0.09678418 + t * (-0.18628806 +
-    t * (0.27886807 + t * (-1.13520398 + t * (1.48851587 +
-    t * (-0.82215223 + t * 0.17087277)))))));
-  const ans = t * Math.exp(-z * z - 1.26551223 + t * poly);
-  return x >= 0 ? ans : 2 - ans;
-}
-
-export function getShadowMetrics(w: number, h: number, theme: GlassTheme) {
-  const m = Math.min(w, h);
-  const sigma = Math.max(1.5, Math.min(2.8, m * 0.034));
-  const offsetY = Math.max(1.0, Math.min(2.0, m * 0.024));
-  const pad = Math.ceil(offsetY + sigma * 3.2);
-  if (theme === "white") {
-    return { pad, offsetY, sigma, alpha: 0.21, r: 0, g: 0, b: 0 };
-  }
-  if (theme === "grey1200") {
-    return { pad, offsetY, sigma, alpha: 0.48, r: 0, g: 0, b: 0 };
-  }
+export function getShadowMetrics(width: number, height: number, theme: BackgroundTheme) {
+  const minDim = Math.min(width, height);
+  const sigma = Math.max(1.5, Math.min(2.8, minDim * 0.034));
+  const offsetY = Math.max(1.0, Math.min(2.0, minDim * 0.024));
+  const pad = Math.ceil(offsetY + sigma * 3.5 + 2);
+  if (theme === "white") return { pad, offsetY, sigma, alpha: 0.21, r: 0, g: 0, b: 0 };
+  if (theme === "grey1200") return { pad, offsetY, sigma, alpha: 0.48, r: 0, g: 0, b: 0 };
   return { pad, offsetY, sigma, alpha: 0.25, r: 0, g: 0, b: 0 };
 }
 
-function traceRoundRect(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  rad: number
-) {
-  const rr = Math.max(0, Math.min(rad, Math.min(w, h) / 2));
+function traceRoundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, radius: number) {
+  const r = Math.max(0, Math.min(radius, w / 2, h / 2));
   ctx.beginPath();
-  ctx.moveTo(x + rr, y);
-  ctx.lineTo(x + w - rr, y);
-  ctx.arc(x + w - rr, y + rr, rr, -Math.PI / 2, 0);
-  ctx.lineTo(x + w, y + h - rr);
-  ctx.arc(x + w - rr, y + h - rr, rr, 0, Math.PI / 2);
-  ctx.lineTo(x + rr, y + h);
-  ctx.arc(x + rr, y + h - rr, rr, Math.PI / 2, Math.PI);
-  ctx.lineTo(x, y + rr);
-  ctx.arc(x + rr, y + rr, rr, Math.PI, (Math.PI * 3) / 2);
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
   ctx.closePath();
 }
 
-function strokeCrispGlassKeyline(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  r: number,
-  theme: GlassTheme
-) {
+function drawCrispKeyline(ctx: CanvasRenderingContext2D, pad: number, w: number, h: number, r: number, theme: BackgroundTheme) {
   ctx.save();
-  const minDim = Math.min(w, h);
-
-  if (theme === "grey1200") {
-    const sw = Math.max(1.25, Math.min(1.6, minDim * 0.018));
-    const half = sw * 0.5;
-    const grad = ctx.createLinearGradient(x, y, x + w, y + h);
-    grad.addColorStop(0, "rgba(255, 255, 255, 0.78)");
-    grad.addColorStop(0.45, "rgba(242, 245, 250, 0.58)");
-    grad.addColorStop(1, "rgba(255, 255, 255, 0.72)");
-    traceRoundRect(ctx, x + half, y + half, w - sw, h - sw, r - half);
-    ctx.strokeStyle = grad;
-    ctx.lineWidth = sw;
-    ctx.stroke();
-  } else if (theme === "white") {
-    ctx.save();
-    traceRoundRect(ctx, x, y, w, h, r);
-    ctx.clip();
-    const glowBand = Math.max(6, Math.min(18, Math.min(w, h) * 0.22));
-    const innerGlowGrad = ctx.createLinearGradient(x, y, x, y + h);
-    innerGlowGrad.addColorStop(0, "rgba(255, 255, 255, 0.04)");
-    innerGlowGrad.addColorStop(0.38, "rgba(255, 255, 255, 0.18)");
-    innerGlowGrad.addColorStop(1, "rgba(255, 255, 255, 0.34)");
-    ctx.filter = `blur(${(glowBand * 0.45).toFixed(1)}px)`;
-    traceRoundRect(ctx, x + 1, y + 1, w - 2, h - 2, Math.max(0, r - 1));
-    ctx.strokeStyle = innerGlowGrad;
-    ctx.lineWidth = glowBand;
-    ctx.stroke();
-    ctx.restore();
-
-    ctx.save();
-    traceRoundRect(ctx, x, y, w, h, r);
-    ctx.strokeStyle = "rgba(160, 165, 172, 0.28)";
+  if (theme === "white") {
+    const oIns = 0.2;
+    traceRoundedRect(ctx, pad + oIns, pad + oIns, w - oIns * 2, h - oIns * 2, Math.max(0, r - oIns));
+    ctx.strokeStyle = "rgba(198, 202, 206, 0.30)";
     ctx.lineWidth = 0.7;
     ctx.stroke();
-    ctx.restore();
 
-    ctx.save();
-    const sw = 1.15;
-    const inset = 0.65;
-    traceRoundRect(ctx, x + inset, y + inset, w - inset * 2, h - inset * 2, Math.max(0, r - inset));
+    const kIns = 0.65;
+    traceRoundedRect(ctx, pad + kIns, pad + kIns, w - kIns * 2, h - kIns * 2, Math.max(0, r - kIns));
     ctx.strokeStyle = "rgba(255, 255, 255, 0.90)";
-    ctx.lineWidth = sw;
+    ctx.lineWidth = 1.15;
     ctx.stroke();
-    ctx.restore();
   } else {
-    const sw = Math.max(1.15, Math.min(1.45, minDim * 0.016));
-    const half = sw * 0.5;
-    const grad = ctx.createLinearGradient(x, y, x + w, y + h);
-    grad.addColorStop(0, "rgba(255, 255, 255, 0.58)");
-    grad.addColorStop(0.5, "rgba(246, 247, 246, 0.42)");
-    grad.addColorStop(1, "rgba(255, 255, 255, 0.54)");
-    traceRoundRect(ctx, x + half, y + half, w - sw, h - sw, r - half);
-    ctx.strokeStyle = grad;
-    ctx.lineWidth = sw;
+    const kIns = 0.65;
+    traceRoundedRect(ctx, pad + kIns, pad + kIns, w - kIns * 2, h - kIns * 2, Math.max(0, r - kIns));
+    const kg = ctx.createLinearGradient(pad, pad, pad + w, pad + h);
+    if (theme === "grey1200") {
+      kg.addColorStop(0, "rgba(255, 255, 255, 0.86)");
+      kg.addColorStop(0.5, "rgba(242, 244, 248, 0.58)");
+      kg.addColorStop(1, "rgba(255, 255, 255, 0.78)");
+      ctx.lineWidth = 1.25;
+    } else {
+      kg.addColorStop(0, "rgba(255, 255, 255, 0.82)");
+      kg.addColorStop(0.5, "rgba(245, 246, 246, 0.52)");
+      kg.addColorStop(1, "rgba(255, 255, 255, 0.74)");
+      ctx.lineWidth = 1.15;
+    }
+    ctx.strokeStyle = kg;
     ctx.stroke();
   }
   ctx.restore();
 }
 
-function evaluateGlassSurface(
-  w: number,
-  h: number,
-  vNorm: number,
-  inwardDist: number,
-  ny: number,
-  theme: GlassTheme,
-  frostOpacity: number
-): [number, number, number, number] {
-  const maxOp = 1.0;
-  const s = Math.max(0, Math.min(maxOp, frostOpacity));
-  const minDim = Math.min(w, h);
+let _ctxFilterSupported: boolean | null = null;
+function hasNativeCtxFilter(): boolean {
+  if (_ctxFilterSupported !== null) return _ctxFilterSupported;
+  if (typeof document === "undefined") return false;
+  const c = document.createElement("canvas");
+  const ctx = c.getContext("2d");
+  _ctxFilterSupported = !!ctx && typeof ctx.filter === "string";
+  return _ctxFilterSupported;
+}
 
-  const topSuppression = 1.0 - 0.82 * Math.pow(Math.max(0, -ny), 1.35);
-  const baseSideWeight = topSuppression * (0.84 + 0.16 * Math.max(0, ny));
-  const glowWidth = Math.max(7.0, Math.min(26.0, minDim * 0.29));
-  const glowFalloff = Math.exp(-Math.pow(inwardDist / glowWidth, 1.28));
-  const innerGlow = baseSideWeight * glowFalloff;
+function applyGaussianBlur(src: HTMLCanvasElement, sigma: number): HTMLCanvasElement {
+  const w = src.width;
+  const h = src.height;
+  const out = document.createElement("canvas");
+  out.width = w;
+  out.height = h;
+  const oCtx = out.getContext("2d")!;
 
-  let baseR = 250, baseG = 250, baseB = 249, baseA = 0;
-  let glowA = 0;
-
-  if (theme === "white") {
-    baseR = 239;
-    baseG = 240;
-    baseB = 242;
-    baseA = Math.min(0.82, (0.08 + s * 0.46) * (0.96 + 0.06 * vNorm));
-    glowA = Math.min(0.58, innerGlow * (0.38 + 0.12 * s));
-  } else if (theme === "grey1200") {
-    // 100% slider = old 50% (sEff = 0.50), 50% slider = old 25% (sEff = 0.25)
-    const sEff = s * 0.5;
-    const floorScale = Math.min(1, s * 4);
-    baseR = 246; baseG = 246; baseB = 247;
-    baseA = Math.min(
-      0.56,
-      (0.035 * floorScale + sEff * 0.19) * (0.95 + 0.08 * vNorm)
-    );
-    glowA = innerGlow * 0.095 * (0.35 + 0.65 * floorScale);
-  } else {
-    baseR = 252; baseG = 252; baseB = 250;
-    baseA = Math.min(0.68, (0.05 + s * 0.34) * (0.96 + 0.06 * vNorm));
-    glowA = innerGlow * (0.24 + 0.08 * s);
+  if (sigma <= 0.15) {
+    oCtx.drawImage(src, 0, 0);
+    return out;
   }
 
-  const fA = glowA + baseA * (1 - glowA);
-  if (fA <= 0.0001) return [255, 255, 255, 0];
-  return [
-    (255 * glowA + baseR * baseA * (1 - glowA)) / fA,
-    (255 * glowA + baseG * baseA * (1 - glowA)) / fA,
-    (255 * glowA + baseB * baseA * (1 - glowA)) / fA,
-    fA,
-  ];
+  if (hasNativeCtxFilter()) {
+    oCtx.filter = `blur(${sigma.toFixed(2)}px)`;
+    oCtx.drawImage(src, 0, 0);
+    oCtx.filter = "none";
+    return out;
+  }
+
+  // Premultiplied 3-pass separable box blur fallback for older Safari versions
+  const sCtx = src.getContext("2d")!;
+  const img = sCtx.getImageData(0, 0, w, h);
+  const px = img.data;
+  const len = w * h;
+  let pr = new Float32Array(len);
+  let pg = new Float32Array(len);
+  let pb = new Float32Array(len);
+  let pa = new Float32Array(len);
+
+  for (let i = 0; i < len; i++) {
+    const a = px[i * 4 + 3] / 255;
+    pa[i] = a;
+    pr[i] = px[i * 4] * a;
+    pg[i] = px[i * 4 + 1] * a;
+    pb[i] = px[i * 4 + 2] * a;
+  }
+
+  const rad = Math.max(1, Math.round(sigma * 1.1));
+  const tr = new Float32Array(len);
+  const tg = new Float32Array(len);
+  const tb = new Float32Array(len);
+  const ta = new Float32Array(len);
+
+  for (let pass = 0; pass < 3; pass++) {
+    for (let y = 0; y < h; y++) {
+      const row = y * w;
+      for (let x = 0; x < w; x++) {
+        let sr = 0, sg = 0, sb = 0, sa = 0, cnt = 0;
+        const x0 = Math.max(0, x - rad);
+        const x1 = Math.min(w - 1, x + rad);
+        for (let k = x0; k <= x1; k++) {
+          const idx = row + k;
+          sr += pr[idx]; sg += pg[idx]; sb += pb[idx]; sa += pa[idx];
+          cnt++;
+        }
+        const oIdx = row + x;
+        tr[oIdx] = sr / cnt; tg[oIdx] = sg / cnt; tb[oIdx] = sb / cnt; ta[oIdx] = sa / cnt;
+      }
+    }
+    for (let x = 0; x < w; x++) {
+      for (let y = 0; y < h; y++) {
+        let sr = 0, sg = 0, sb = 0, sa = 0, cnt = 0;
+        const y0 = Math.max(0, y - rad);
+        const y1 = Math.min(h - 1, y + rad);
+        for (let k = y0; k <= y1; k++) {
+          const idx = k * w + x;
+          sr += tr[idx]; sg += tg[idx]; sb += tb[idx]; sa += ta[idx];
+          cnt++;
+        }
+        const oIdx = y * w + x;
+        pr[oIdx] = sr / cnt; pg[oIdx] = sg / cnt; pb[oIdx] = sb / cnt; pa[oIdx] = sa / cnt;
+      }
+    }
+  }
+
+  for (let i = 0; i < len; i++) {
+    const a = pa[i];
+    if (a <= 0.0005) {
+      px[i * 4 + 3] = 0;
+    } else {
+      px[i * 4] = Math.min(255, Math.round(pr[i] / a));
+      px[i * 4 + 1] = Math.min(255, Math.round(pg[i] / a));
+      px[i * 4 + 2] = Math.min(255, Math.round(pb[i] / a));
+      px[i * 4 + 3] = Math.min(255, Math.round(a * 255));
+    }
+  }
+  oCtx.putImageData(img, 0, 0);
+  return out;
 }
 
 export function renderStandaloneGlassPanel({
@@ -325,167 +263,246 @@ export function renderStandaloneGlassPanel({
   shape,
   theme,
   frostOpacity,
-  customRadius,
-  cornerRadius,
+  customRadius = 20,
   includeShadow = true,
-}: StandaloneGlassParams): HTMLCanvasElement {
+}: GlassPanelConfig): HTMLCanvasElement {
   const w = Math.max(16, Math.round(width));
   const h = Math.max(16, Math.round(height));
-  const r = getCornerRadius(w, h, shape, customRadius ?? cornerRadius ?? 20);
-  const sh = getShadowMetrics(w, h, theme);
-  const pad = includeShadow ? sh.pad : 0;
-  const cw = w + pad * 2, ch = h + pad * 2;
+  const r = getCornerRadius(w, h, shape, customRadius);
+  const rawS = Math.max(0, Math.min(1.0, frostOpacity));
+  const s = theme === "grey1200" ? rawS * 0.5 : rawS;
+
+  const shadow = getShadowMetrics(w, h, theme);
+  const workPad = shadow.pad;
+  const cw = w + workPad * 2;
+  const ch = h + workPad * 2;
 
   const canvas = document.createElement("canvas");
   canvas.width = cw;
   canvas.height = ch;
-  canvas.dataset.pad = String(pad);
-  const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
-  const img = ctx.createImageData(cw, ch);
-  const data = img.data;
+  const ctx = canvas.getContext("2d")!;
 
-  const cx = pad + w / 2, cy = pad + h / 2;
-  const bx = w / 2, by = h / 2;
-  const invSig = 1 / (sh.sigma * Math.SQRT2);
+  // 1. Exterior-only soft drop shadow
+  if (includeShadow) {
+    const shRaw = document.createElement("canvas");
+    shRaw.width = cw;
+    shRaw.height = ch;
+    const shCtx = shRaw.getContext("2d")!;
+    shCtx.fillStyle = `rgba(${shadow.r}, ${shadow.g}, ${shadow.b}, ${shadow.alpha.toFixed(3)})`;
+    traceRoundedRect(shCtx, workPad, workPad + shadow.offsetY, w, h, r);
+    shCtx.fill();
 
-  for (let y = 0; y < ch; y++) {
-    const py = y + 0.5 - cy;
-    const vNorm = Math.max(0, Math.min(1, (y - pad) / Math.max(1, h - 1)));
-    for (let x = 0; x < cw; x++) {
-      const px = x + 0.5 - cx;
-      const d = sdRoundBox(px, py, bx, by, r);
-      const mA = 1 - smoothstep(-0.55, 0.55, d);
-
-      let shA = 0;
-      if (includeShadow && mA < 0.999) {
-        const dSh = sdRoundBox(px, py - sh.offsetY, bx, by, r);
-        shA = sh.alpha * 0.5 * erfcApprox(dSh * invSig) * (1 - mA);
-      }
-      if (mA <= 0.001) {
-        if (shA <= 0.001) continue;
-        const i = (y * cw + x) * 4;
-        data[i] = sh.r; data[i + 1] = sh.g; data[i + 2] = sh.b;
-        data[i + 3] = Math.round(shA * 255);
-        continue;
-      }
-      const [, ny] = sdRoundBoxNormal(px, py, bx, by, r);
-      const [sR, sG, sB, sA] = evaluateGlassSurface(
-        w, h, vNorm, Math.max(0, -d), ny, theme, frostOpacity
-      );
-      const gA = sA * mA;
-      const totA = gA + shA;
-      if (totA <= 0.001) continue;
-      const i = (y * cw + x) * 4;
-      data[i] = Math.round((sR * gA + sh.r * shA) / totA);
-      data[i + 1] = Math.round((sG * gA + sh.g * shA) / totA);
-      data[i + 2] = Math.round((sB * gA + sh.b * shA) / totA);
-      data[i + 3] = Math.round(totA * 255);
-    }
+    const shBlurred = applyGaussianBlur(shRaw, shadow.sigma);
+    ctx.save();
+    ctx.drawImage(shBlurred, 0, 0);
+    ctx.globalCompositeOperation = "destination-out";
+    ctx.fillStyle = "#000000";
+    traceRoundedRect(ctx, workPad, workPad, w, h, r);
+    ctx.fill();
+    ctx.restore();
   }
-  ctx.putImageData(img, 0, 0);
-  strokeCrispGlassKeyline(ctx, pad, pad, w, h, r, theme);
+
+  // 2. Neutral interior frost + smooth 2D Gaussian inner glow (zero 45° bevel corners)
+  ctx.save();
+  traceRoundedRect(ctx, workPad, workPad, w, h, r);
+  ctx.clip();
+
+  const frostGrad = ctx.createLinearGradient(0, workPad, 0, workPad + h);
+  if (theme === "white") {
+    const a = Math.min(0.85, 0.07 + s * 0.5);
+    frostGrad.addColorStop(0, `rgba(244, 244, 243, ${(a * 0.96).toFixed(4)})`);
+    frostGrad.addColorStop(1, `rgba(244, 244, 243, ${Math.min(0.86, a * 1.02).toFixed(4)})`);
+  } else if (theme === "grey1200") {
+    const a = Math.min(0.56, 0.035 + s * 0.19);
+    frostGrad.addColorStop(0, `rgba(246, 246, 247, ${(a * 0.95).toFixed(4)})`);
+    frostGrad.addColorStop(1, `rgba(246, 246, 247, ${Math.min(0.58, a * 1.03).toFixed(4)})`);
+  } else {
+    const a = Math.min(0.68, 0.05 + s * 0.34);
+    frostGrad.addColorStop(0, `rgba(252, 252, 250, ${(a * 0.96).toFixed(4)})`);
+    frostGrad.addColorStop(1, `rgba(252, 252, 250, ${Math.min(0.7, a * 1.02).toFixed(4)})`);
+  }
+  ctx.fillStyle = frostGrad;
+  ctx.fillRect(workPad, workPad, w, h);
+
+  const minDim = Math.min(w, h);
+  const glowStroke = Math.max(10, Math.min(32, minDim * 0.34));
+  const glowBlur = Math.max(4.5, glowStroke * 0.45);
+
+  const glowRaw = document.createElement("canvas");
+  glowRaw.width = cw;
+  glowRaw.height = ch;
+  const gCtx = glowRaw.getContext("2d")!;
+  const glowGrad = gCtx.createLinearGradient(0, workPad, 0, workPad + h);
+
+  if (theme === "white") {
+    glowGrad.addColorStop(0, `rgba(255, 255, 255, ${(0.08 + 0.04 * s).toFixed(3)})`);
+    glowGrad.addColorStop(0.42, `rgba(255, 255, 255, ${(0.52 + 0.16 * s).toFixed(3)})`);
+    glowGrad.addColorStop(1, `rgba(255, 255, 255, ${(0.68 + 0.2 * s).toFixed(3)})`);
+  } else if (theme === "grey1200") {
+    glowGrad.addColorStop(0, "rgba(255, 255, 255, 0.03)");
+    glowGrad.addColorStop(0.45, "rgba(255, 255, 255, 0.19)");
+    glowGrad.addColorStop(1, "rgba(255, 255, 255, 0.25)");
+  } else {
+    glowGrad.addColorStop(0, "rgba(255, 255, 255, 0.06)");
+    glowGrad.addColorStop(0.42, `rgba(255, 255, 255, ${(0.42 + 0.12 * s).toFixed(3)})`);
+    glowGrad.addColorStop(1, `rgba(255, 255, 255, ${(0.54 + 0.14 * s).toFixed(3)})`);
+  }
+
+  gCtx.strokeStyle = glowGrad;
+  gCtx.lineWidth = glowStroke;
+  traceRoundedRect(gCtx, workPad, workPad, w, h, r);
+  gCtx.stroke();
+
+  const glowBlurred = applyGaussianBlur(glowRaw, glowBlur);
+  ctx.drawImage(glowBlurred, 0, 0);
+  ctx.restore();
+
+  // 3. Crisp anti-aliased vector keyline
+  drawCrispKeyline(ctx, workPad, w, h, r, theme);
+
+  if (!includeShadow) {
+    const cropped = document.createElement("canvas");
+    cropped.width = w;
+    cropped.height = h;
+    cropped.getContext("2d")!.drawImage(canvas, workPad, workPad, w, h, 0, 0, w, h);
+    return cropped;
+  }
   return canvas;
 }
 
-export function generateStandaloneGlassSvg({
-  width,
-  height,
-  shape,
-  theme,
-  frostOpacity,
-}: StandaloneGlassParams): string {
-  const w = Math.max(16, Math.round(width));
-  const h = Math.max(16, Math.round(height));
-  const r = getCornerRadius(w, h, shape, 20);
-  const s = Math.max(0, Math.min(1.0, frostOpacity));
-  const sEff = theme === "grey1200" ? s * 0.5 : s;
-  const sh = getShadowMetrics(w, h, theme);
-  const p = sh.pad;
-  const tw = w + p * 2, th = h + p * 2;
+function renderBlurredBackdropCrop(
+  bgSource: CanvasImageSource,
+  stageWidth: number,
+  stageHeight: number,
+  panelX: number,
+  panelY: number,
+  w: number,
+  h: number,
+  theme: BackgroundTheme,
+  rawOpacity: number
+): HTMLCanvasElement {
+  const margin = 40;
+  const sw = w + margin * 2;
+  const sh = h + margin * 2;
 
-  const baseA =
-    theme === "grey1200"
-      ? 0.035 * Math.min(1, s * 4) + sEff * 0.19
-      : theme === "white"
-      ? Math.min(0.85, 0.07 + s * 0.50)
+  const sharp = document.createElement("canvas");
+  sharp.width = sw;
+  sharp.height = sh;
+  const sCtx = sharp.getContext("2d")!;
+  sCtx.fillStyle = theme === "grey1200" ? "#121317" : "#FFFFFF";
+  sCtx.fillRect(0, 0, sw, sh);
+  sCtx.drawImage(bgSource, -(panelX - margin), -(panelY - margin), stageWidth, stageHeight);
+
+  const blurPx = 7.5 + rawOpacity * 10.0;
+  const blurredFull = applyGaussianBlur(sharp, blurPx);
+
+  const cropped = document.createElement("canvas");
+  cropped.width = w;
+  cropped.height = h;
+  cropped.getContext("2d")!.drawImage(blurredFull, -margin, -margin);
+  return cropped;
+}
+
+export function renderRefractedGlassPatch(
+  bgSource: CanvasImageSource,
+  stageWidth: number,
+  stageHeight: number,
+  panelX: number,
+  panelY: number,
+  config: GlassPanelConfig
+): HTMLCanvasElement {
+  const w = Math.max(24, Math.round(config.width));
+  const h = Math.max(24, Math.round(config.height));
+  const r = getCornerRadius(w, h, config.shape, config.customRadius ?? 20);
+  const rawS = Math.max(0, Math.min(1.0, config.frostOpacity));
+  const shadow = getShadowMetrics(w, h, config.theme);
+  const outPad = shadow.pad;
+
+  const outCanvas = document.createElement("canvas");
+  outCanvas.width = w + outPad * 2;
+  outCanvas.height = h + outPad * 2;
+  const outCtx = outCanvas.getContext("2d")!;
+
+  const blurredCrop = renderBlurredBackdropCrop(bgSource, stageWidth, stageHeight, panelX, panelY, w, h, config.theme, rawS);
+  const standalone = renderStandaloneGlassPanel({ ...config, width: w, height: h, includeShadow: true });
+
+  outCtx.save();
+  traceRoundedRect(outCtx, outPad, outPad, w, h, r);
+  outCtx.clip();
+  outCtx.drawImage(blurredCrop, outPad, outPad);
+  outCtx.restore();
+
+  outCtx.drawImage(standalone, 0, 0);
+  return outCanvas;
+}
+
+export function generateStandaloneGlassSvg(config: GlassPanelConfig): string {
+  const w = Math.max(16, Math.round(config.width));
+  const h = Math.max(16, Math.round(config.height));
+  const r = getCornerRadius(w, h, config.shape, config.customRadius ?? 20);
+  const rawS = Math.max(0, Math.min(1.0, config.frostOpacity));
+  const s = config.theme === "grey1200" ? rawS * 0.5 : rawS;
+  const shadow = getShadowMetrics(w, h, config.theme);
+  const pad = shadow.pad;
+
+  const baseFrostAlpha =
+    config.theme === "grey1200"
+      ? 0.035 + s * 0.19
+      : config.theme === "white"
+      ? Math.min(0.85, 0.07 + s * 0.5)
       : 0.05 + s * 0.34;
-  const fCol =
-    theme === "white" ? "#F4F4F3" : theme === "grey1200" ? "#F6F6F7" : "#FCFCFA";
-  const op1 = Math.min(0.86, baseA * 0.96).toFixed(3);
-  const op2 = Math.min(0.86, baseA * 1.02).toFixed(3);
 
-  const glowStroke = Math.max(10, Math.min(30, Math.min(w, h) * 0.34));
-  const glowBlur = (glowStroke * 0.42).toFixed(1);
-  const glowPeak =
-    theme === "grey1200" ? "0.14" : theme === "white" ? "0.54" : "0.34";
-  const glowMid =
-    theme === "grey1200" ? "0.11" : theme === "white" ? "0.42" : "0.28";
+  const frostColor = config.theme === "white" ? "#F4F4F3" : config.theme === "grey1200" ? "#F6F6F7" : "#FCFCFA";
+  const topFrostOp = Math.min(0.86, baseFrostAlpha * 0.96).toFixed(3);
+  const botFrostOp = Math.min(0.86, baseFrostAlpha * 1.02).toFixed(3);
 
-  const sw =
-    theme === "grey1200"
-      ? Math.max(1.25, Math.min(1.6, Math.min(w, h) * 0.018))
-      : theme === "white" ? 1.15 : Math.max(1.15, Math.min(1.4, Math.min(w, h) * 0.016));
-  const half = sw * 0.5;
-  const rimStops =
-    theme === "grey1200"
-      ? `<stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.78" />
-      <stop offset="45%" stop-color="#F2F5FA" stop-opacity="0.58" />
-      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.72" />`
-      : theme === "white"
-      ? `<stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.90" />
-      <stop offset="50%" stop-color="#FFFFFF" stop-opacity="0.90" />
-      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.90" />`
-      : `<stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.58" />
-      <stop offset="50%" stop-color="#F6F7F6" stop-opacity="0.42" />
-      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.54" />`;
+  const glowStroke = Math.max(10, Math.min(32, Math.min(w, h) * 0.34));
+  const glowBlur = Math.max(4.5, glowStroke * 0.45).toFixed(2);
+  const glowMid = config.theme === "grey1200" ? 0.19 : config.theme === "white" ? 0.52 + 0.16 * s : 0.42 + 0.12 * s;
+  const glowPeak = config.theme === "grey1200" ? 0.25 : config.theme === "white" ? 0.68 + 0.2 * s : 0.54 + 0.14 * s;
+
+  const keylineMarkup =
+    config.theme === "white"
+      ? `<rect x="0.2" y="0.2" width="${(w - 0.4).toFixed(1)}" height="${(h - 0.4).toFixed(1)}" rx="${Math.max(0, r - 0.2).toFixed(1)}" ry="${Math.max(0, r - 0.2).toFixed(1)}" fill="none" stroke="#C6CACE" stroke-opacity="0.30" stroke-width="0.7" />
+    <rect x="0.65" y="0.65" width="${(w - 1.3).toFixed(2)}" height="${(h - 1.3).toFixed(2)}" rx="${Math.max(0, r - 0.65).toFixed(2)}" ry="${Math.max(0, r - 0.65).toFixed(2)}" fill="none" stroke="#FFFFFF" stroke-opacity="0.90" stroke-width="1.15" />`
+      : `<rect x="0.65" y="0.65" width="${(w - 1.3).toFixed(2)}" height="${(h - 1.3).toFixed(2)}" rx="${Math.max(0, r - 0.65).toFixed(2)}" ry="${Math.max(0, r - 0.65).toFixed(2)}" fill="none" stroke="#FFFFFF" stroke-opacity="${config.theme === "grey1200" ? "0.76" : "0.70"}" stroke-width="${config.theme === "grey1200" ? "1.25" : "1.15"}" />`;
 
   return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${tw}" height="${th}"
-  viewBox="${-p} ${-p} ${tw} ${th}" fill="none">
+<svg xmlns="http://www.w3.org/2000/svg" width="${w + pad * 2}" height="${h + pad * 2}" viewBox="${-pad} ${-pad} ${w + pad * 2} ${h + pad * 2}" fill="none">
   <defs>
     <clipPath id="panel-clip">
       <rect x="0" y="0" width="${w}" height="${h}" rx="${r}" ry="${r}" />
     </clipPath>
-    <mask id="sh-mask" maskUnits="userSpaceOnUse"
-      x="${-p}" y="${-p}" width="${tw}" height="${th}">
-      <rect x="${-p}" y="${-p}" width="${tw}" height="${th}" fill="#FFF" />
-      <rect x="0" y="0" width="${w}" height="${h}" rx="${r}" fill="#000" />
+    <mask id="outer-shadow-mask" maskUnits="userSpaceOnUse" x="${-pad}" y="${-pad}" width="${w + pad * 2}" height="${h + pad * 2}">
+      <rect x="${-pad}" y="${-pad}" width="${w + pad * 2}" height="${h + pad * 2}" fill="#FFFFFF" />
+      <rect x="0" y="0" width="${w}" height="${h}" rx="${r}" ry="${r}" fill="#000000" />
     </mask>
-    <filter id="sh-blur" x="-35%" y="-35%" width="170%" height="170%">
-      <feGaussianBlur stdDeviation="${sh.sigma.toFixed(2)}" />
+    <filter id="drop-shadow-blur" x="-35%" y="-35%" width="170%" height="170%">
+      <feGaussianBlur stdDeviation="${shadow.sigma.toFixed(2)}" />
     </filter>
-    <filter id="glow-blur" x="-25%" y="-25%" width="150%" height="150%">
+    <filter id="inner-glow-blur" x="-30%" y="-30%" width="160%" height="160%">
       <feGaussianBlur stdDeviation="${glowBlur}" />
     </filter>
     <linearGradient id="frost-fill" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="${fCol}" stop-opacity="${op1}" />
-      <stop offset="100%" stop-color="${fCol}" stop-opacity="${op2}" />
+      <stop offset="0%" stop-color="${frostColor}" stop-opacity="${topFrostOp}" />
+      <stop offset="100%" stop-color="${frostColor}" stop-opacity="${botFrostOp}" />
     </linearGradient>
     <linearGradient id="base-side-glow" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.03" />
-      <stop offset="45%" stop-color="#FFFFFF" stop-opacity="${glowMid}" />
-      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="${glowPeak}" />
-    </linearGradient>
-    <linearGradient id="rim-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-      ${rimStops}
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.04" />
+      <stop offset="44%" stop-color="#FFFFFF" stop-opacity="${glowMid.toFixed(3)}" />
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="${glowPeak.toFixed(3)}" />
     </linearGradient>
   </defs>
-  <g mask="url(#sh-mask)">
-    <rect x="0" y="${sh.offsetY.toFixed(2)}" width="${w}" height="${h}"
-      rx="${r}" fill="rgb(${sh.r},${sh.g},${sh.b})"
-      fill-opacity="${sh.alpha.toFixed(3)}" filter="url(#sh-blur)" />
+  <g id="liquid-glass-shadow" mask="url(#outer-shadow-mask)">
+    <rect x="0" y="${shadow.offsetY.toFixed(2)}" width="${w}" height="${h}" rx="${r}" ry="${r}" fill="#000000" fill-opacity="${shadow.alpha.toFixed(3)}" filter="url(#drop-shadow-blur)" />
   </g>
-  <g clip-path="url(#panel-clip)">
-    <rect x="0" y="0" width="${w}" height="${h}" rx="${r}"
-      fill="url(#frost-fill)" />
-    <rect x="0" y="0" width="${w}" height="${h}" rx="${r}" fill="none"
-      stroke="url(#base-side-glow)" stroke-width="${glowStroke.toFixed(1)}"
-      filter="url(#glow-blur)" />
+  <g id="liquid-glass-panel" clip-path="url(#panel-clip)">
+    <rect x="0" y="0" width="${w}" height="${h}" rx="${r}" ry="${r}" fill="url(#frost-fill)" />
+    <rect x="0" y="0" width="${w}" height="${h}" rx="${r}" ry="${r}" fill="none" stroke="url(#base-side-glow)" stroke-width="${glowStroke.toFixed(1)}" filter="url(#inner-glow-blur)" />
   </g>
-  <rect x="${half.toFixed(2)}" y="${half.toFixed(2)}"
-    width="${(w - sw).toFixed(2)}" height="${(h - sw).toFixed(2)}"
-    rx="${Math.max(0, r - half).toFixed(2)}" fill="none"
-    stroke="url(#rim-grad)" stroke-width="${sw.toFixed(2)}" />
+  <g id="liquid-glass-keyline">
+    ${keylineMarkup}
+  </g>
 </svg>`;
 }
 
@@ -495,173 +512,41 @@ export function generateCompositedGlassSvg(
   stageHeight: number,
   panelX: number,
   panelY: number,
-  config: StandaloneGlassParams
+  config: GlassPanelConfig
 ): string {
   const bgCanvas = document.createElement("canvas");
   bgCanvas.width = stageWidth;
   bgCanvas.height = stageHeight;
   bgCanvas.getContext("2d")!.drawImage(bgSource, 0, 0, stageWidth, stageHeight);
-  const bgUrl = bgCanvas.toDataURL("image/png");
+  const bgDataUrl = bgCanvas.toDataURL("image/png");
 
   const w = Math.max(24, Math.round(config.width));
   const h = Math.max(24, Math.round(config.height));
-  const r = getCornerRadius(w, h, config.shape, 20);
-  const px = Math.round(panelX), py = Math.round(panelY);
-  const effOp =
-    config.theme === "grey1200" ? config.frostOpacity * 0.5 : config.frostOpacity;
-  const blurPx = (7.5 + effOp * 10.0).toFixed(1);
+  const r = getCornerRadius(w, h, config.shape, config.customRadius ?? 20);
+  const px = Math.round(panelX);
+  const py = Math.round(panelY);
+  const rawS = Math.max(0, Math.min(1.0, config.frostOpacity));
 
-  const inner = generateStandaloneGlassSvg(config)
+  // Pre-bake blurred backdrop crop so Adobe InDesign preserves 100% of the background blur
+  const blurredCrop = renderBlurredBackdropCrop(bgSource, stageWidth, stageHeight, px, py, w, h, config.theme, rawS);
+  const blurredDataUrl = blurredCrop.toDataURL("image/png");
+
+  const innerPanelSvg = generateStandaloneGlassSvg(config)
     .replace(/<\?xml.*?\?>\s*/g, "")
-    .replace(/<svg[^>]*>/, `<g transform="translate(${px}, ${py})">`)
+    .replace(/<svg[^>]*>/, `<g id="liquid-glass-svg-panel" transform="translate(${px}, ${py})">`)
     .replace(/<\/svg>\s*$/, "</g>");
 
   return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${stageWidth}"
-  height="${stageHeight}" viewBox="0 0 ${stageWidth} ${stageHeight}">
+<svg xmlns="http://www.w3.org/2000/svg" width="${stageWidth}" height="${stageHeight}" viewBox="0 0 ${stageWidth} ${stageHeight}" fill="none">
   <defs>
-    <clipPath id="stage-clip">
-      <rect x="${px}" y="${py}" width="${w}" height="${h}" rx="${r}" />
+    <clipPath id="stage-backdrop-clip">
+      <rect x="${px}" y="${py}" width="${w}" height="${h}" rx="${r}" ry="${r}" />
     </clipPath>
-    <filter id="stage-blur" x="-10%" y="-10%" width="120%" height="120%">
-      <feGaussianBlur stdDeviation="${blurPx}" />
-    </filter>
   </defs>
-  <image href="${bgUrl}" x="0" y="0"
-    width="${stageWidth}" height="${stageHeight}" />
-  <g clip-path="url(#stage-clip)">
-    <image href="${bgUrl}" x="0" y="0" width="${stageWidth}"
-      height="${stageHeight}" filter="url(#stage-blur)" />
+  <image id="uploaded-background" href="${bgDataUrl}" x="0" y="0" width="${stageWidth}" height="${stageHeight}" />
+  <g id="frosted-backdrop" clip-path="url(#stage-backdrop-clip)">
+    <image href="${blurredDataUrl}" x="${px}" y="${py}" width="${w}" height="${h}" />
   </g>
-  ${inner}
+  ${innerPanelSvg}
 </svg>`;
-}
-
-export function renderRefractedGlassPatch(
-  bgSource: CanvasImageSource,
-  stageWidth: number,
-  stageHeight: number,
-  panelX: number,
-  panelY: number,
-  config: StandaloneGlassParams
-): HTMLCanvasElement {
-  const w = Math.max(24, Math.round(config.width));
-  const h = Math.max(24, Math.round(config.height));
-  const r = getCornerRadius(w, h, config.shape);
-  const sh = getShadowMetrics(w, h, config.theme);
-  const outPad = sh.pad;
-  const cw = w + outPad * 2, ch = h + outPad * 2;
-
-  const pad = 36;
-  const sx = Math.floor(panelX - pad), sy = Math.floor(panelY - pad);
-  const sw = w + pad * 2, shH = h + pad * 2;
-
-  const sharp = document.createElement("canvas");
-  sharp.width = sw; sharp.height = shH;
-  const sCtx = sharp.getContext("2d", { willReadFrequently: true })!;
-  sCtx.fillStyle = config.theme === "grey1200" ? "#121317" : "#FFFFFF";
-  sCtx.fillRect(0, 0, sw, shH);
-  sCtx.drawImage(bgSource, -sx, -sy, stageWidth, stageHeight);
-
-  const blur = document.createElement("canvas");
-  blur.width = sw; blur.height = shH;
-  const bCtx = blur.getContext("2d", { willReadFrequently: true })!;
-  const effOp =
-    config.theme === "grey1200" ? config.frostOpacity * 0.5 : config.frostOpacity;
-  const blurPx = 7.5 + effOp * 10.0;
-  bCtx.filter = `blur(${blurPx.toFixed(1)}px) saturate(102%)`;
-  bCtx.drawImage(sharp, 0, 0);
-  bCtx.filter = "none";
-
-  const bPx = bCtx.getImageData(0, 0, sw, shH).data;
-  const sPx = sCtx.getImageData(0, 0, sw, shH).data;
-
-  const out = document.createElement("canvas");
-  out.width = cw; out.height = ch;
-  out.dataset.pad = String(outPad);
-  const oCtx = out.getContext("2d")!;
-  const oImg = oCtx.createImageData(cw, ch);
-  const oData = oImg.data;
-
-  const cx = outPad + w / 2, cy = outPad + h / 2;
-  const bx = w / 2, by = h / 2;
-  const invSig = 1 / (sh.sigma * Math.SQRT2);
-  const mZone =
-    config.theme === "white"
-      ? Math.min(8, Math.min(w, h) * 0.14)
-      : Math.min(13, Math.min(w, h) * 0.20);
-  const maxDisp = config.theme === "white" ? 3.5 : 8.0;
-
-  const sample = (buf: Uint8ClampedArray, fx: number, fy: number) => {
-    const cx0 = Math.max(0, Math.min(sw - 1, fx));
-    const cy0 = Math.max(0, Math.min(shH - 1, fy));
-    const x0 = Math.floor(cx0), y0 = Math.floor(cy0);
-    const x1 = Math.min(sw - 1, x0 + 1), y1 = Math.min(shH - 1, y0 + 1);
-    const tx = cx0 - x0, ty = cy0 - y0;
-    const i00 = (y0 * sw + x0) * 4, i10 = (y0 * sw + x1) * 4;
-    const i01 = (y1 * sw + x0) * 4, i11 = (y1 * sw + x1) * 4;
-    return [
-      (buf[i00] * (1 - tx) + buf[i10] * tx) * (1 - ty) +
-        (buf[i01] * (1 - tx) + buf[i11] * tx) * ty,
-      (buf[i00 + 1] * (1 - tx) + buf[i10 + 1] * tx) * (1 - ty) +
-        (buf[i01 + 1] * (1 - tx) + buf[i11 + 1] * tx) * ty,
-      (buf[i00 + 2] * (1 - tx) + buf[i10 + 2] * tx) * (1 - ty) +
-        (buf[i01 + 2] * (1 - tx) + buf[i11 + 2] * tx) * ty,
-    ];
-  };
-
-  for (let y = 0; y < ch; y++) {
-    const py = y + 0.5 - cy;
-    const vNorm = Math.max(0, Math.min(1, (y - outPad) / Math.max(1, h - 1)));
-    for (let x = 0; x < cw; x++) {
-      const px = x + 0.5 - cx;
-      const d = sdRoundBox(px, py, bx, by, r);
-      const mA = 1 - smoothstep(-0.55, 0.55, d);
-
-      let shA = 0;
-      if (mA < 0.999) {
-        const dSh = sdRoundBox(px, py - sh.offsetY, bx, by, r);
-        shA = sh.alpha * 0.5 * erfcApprox(dSh * invSig) * (1 - mA);
-      }
-      if (mA <= 0.001) {
-        if (shA <= 0.001) continue;
-        const i = (y * cw + x) * 4;
-        oData[i] = sh.r; oData[i + 1] = sh.g; oData[i + 2] = sh.b;
-        oData[i + 3] = Math.round(shA * 255);
-        continue;
-      }
-
-      const lx = x - outPad, ly = y - outPad;
-      const inDist = Math.max(0, -d);
-      const [nx, ny] = sdRoundBoxNormal(px, py, bx, by, r);
-      const lens = Math.pow(Math.max(0, 1 - inDist / mZone), 2.2);
-      const bxS = lx + pad - nx * lens * maxDisp;
-      const byS = ly + pad - ny * lens * maxDisp;
-      const ec = config.theme === "white" ? lens * 0.14 : lens * 0.28;
-
-      const [brR, brG, brB] = sample(bPx, bxS, byS);
-      const [sR0, sG0, sB0] = sample(sPx, bxS, byS);
-
-      const rR = brR * (1 - ec) + sR0 * ec;
-      const rG = brG * (1 - ec) + sG0 * ec;
-      const rB = brB * (1 - ec) + sB0 * ec;
-
-      const [sfR, sfG, sfB, sfA] = evaluateGlassSurface(
-        w, h, vNorm, inDist, ny, config.theme, config.frostOpacity
-      );
-      const gR = sfR * sfA + rR * (1 - sfA);
-      const gG = sfG * sfA + rG * (1 - sfA);
-      const gB = sfB * sfA + rB * (1 - sfA);
-
-      const outA = mA + shA;
-      const i = (y * cw + x) * 4;
-      oData[i] = Math.round((gR * mA + sh.r * shA) / outA);
-      oData[i + 1] = Math.round((gG * mA + sh.g * shA) / outA);
-      oData[i + 2] = Math.round((gB * mA + sh.b * shA) / outA);
-      oData[i + 3] = Math.round(Math.min(1, outA) * 255);
-    }
-  }
-  oCtx.putImageData(oImg, 0, 0);
-  strokeCrispGlassKeyline(oCtx, outPad, outPad, w, h, r, config.theme);
-  return out;
 }
