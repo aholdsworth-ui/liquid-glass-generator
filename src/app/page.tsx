@@ -1,11 +1,12 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { ArrowLeft, RotateCcw, Download, Check, Upload, ExternalLink, X } from "lucide-react";
+import { ArrowLeft, RotateCcw, Download, Check, Upload, ExternalLink, X, Folder, Search, ChevronRight } from "lucide-react";
 import { PAGE_ASSETS, BG_ASSETS, BUTTON_ZONES, GFS_MOMENTUM_DRIVE_URL, ZoneRect } from "@/lib/assetPaths";
 import { PanelShape, BackgroundTheme, STICKER_CATEGORIES, renderStandaloneGlassPanel, generateStandaloneGlassSvg, renderRefractedGlassPatch } from "@/lib/liquidGlassEngine";
 import { LoadedMedia, PanelInstance, loadUniversalMediaFile, getMediaFrameAt, renderFrameWithPanels, exportMultiPanelSvg, exportCompositedMp4 } from "@/lib/mediaSupport";
 import { exportCompositedGif } from "@/lib/gifStudioEncoder";
+import { GFS_MOMENTUM_FOLDER_ID, DriveItem, getConfiguredGoogleClientId, getDriveAccessToken, listDriveFolderItems, downloadDriveFileDirect } from "@/lib/driveDirectPicker";
 
 type ScreenId = "home" | "slides-pre" | "slides-create-cover" | "slides-fullbleed" | "slides-workspace" | "sticker-cover" | "sticker-sheet" | "bg-upload-cover" | "bg-workspace";
 type ResizePreset = "no-resize" | "1:1" | "4:5" | "9:16" | "16:9" | "custom";
@@ -61,8 +62,16 @@ export default function Page() {
     { id: "p1", shape: "text-panel", theme: "imagery", widthInput: "600", heightInput: "260", x: 240, y: 240 },
   ]);
   const [exportingMotion, setExportingMotion] = useState<null | { fmt: "mp4" | "gif"; pct: number }>(null);
+
   const [showMomentumModal, setShowMomentumModal] = useState(false);
-  const [driveUrlInput, setDriveUrlInput] = useState("");
+  const [clientIdInput, setClientIdInput] = useState("");
+  const [driveToken, setDriveToken] = useState("");
+  const [driveStack, setDriveStack] = useState<{ id: string; name: string }[]>([{ id: GFS_MOMENTUM_FOLDER_ID, name: "GFS Momentum" }]);
+  const [driveItems, setDriveItems] = useState<DriveItem[]>([]);
+  const [driveSearch, setDriveSearch] = useState("");
+  const [driveLoading, setDriveLoading] = useState(false);
+  const [driveError, setDriveError] = useState("");
+  const [driveDownloadStatus, setDriveDownloadStatus] = useState("");
   const [isLoadingFile, setIsLoadingFile] = useState(false);
 
   const [stickerFilter, setStickerFilter] = useState("all");
@@ -71,11 +80,12 @@ export default function Page() {
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const bgStageCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const viewTransformRef = useRef({ scale: 1, ox: 0, oy: 0, frozen: false });
+  const viewTransformRef = useRef({ scale: 1, ox: 0, oy: 0 });
   const dragRef = useRef<{
     kind: "none" | "slide-panel" | "bg-panel" | "bg-pan" | "bg-corner";
     panelIdx?: number; corner?: "tl" | "tr" | "bl" | "br";
     dx?: number; dy?: number; anchorX?: number; anchorY?: number;
+    startScale?: number; startDist?: number;
     startPanX?: number; startPanY?: number; startClickX?: number; startClickY?: number;
   }>({ kind: "none" });
 
@@ -87,9 +97,10 @@ export default function Page() {
     ? { width: Math.max(64, parseInt(customFrameW || "1080", 10) || 1080), height: Math.max(64, parseInt(customFrameH || "1080", 10) || 1080) }
     : FORMAT_PRESETS[resizeMode];
 
-  const showToast = (msg: string) => { setToastMsg(msg); setTimeout(() => setToastMsg(""), 3000); };
+  const showToast = (msg: string) => { setToastMsg(msg); setTimeout(() => setToastMsg(""), 3200); };
 
   useEffect(() => {
+    setClientIdInput(getConfiguredGoogleClientId());
     const close = () => setOpenStickerKey(null);
     window.addEventListener("click", close);
     return () => window.removeEventListener("click", close);
@@ -99,8 +110,7 @@ export default function Page() {
     if (screen !== "slides-workspace") return;
     const { width, height } = FORMAT_PRESETS[slideFormat];
     const url = theme === "imagery" ? (BG_ASSETS.imageryExamples[imageryIdx] || BG_ASSETS.imageryExamples[0]) : theme === "grey1200" ? BG_ASSETS.grey1200 : BG_ASSETS.white;
-    const pw = Math.max(60, parseInt(slideW || "420", 10) || 420);
-    const ph = slideShape === "circle" ? pw : Math.max(60, parseInt(slideH || "180", 10) || 180);
+    const pw = Math.max(60, parseInt(slideW || "420", 10) || 420), ph = slideShape === "circle" ? pw : Math.max(60, parseInt(slideH || "180", 10) || 180);
     setSlidePos({ x: Math.round((width - pw) / 2), y: Math.round((height - ph) / 2) });
     if (url) {
       const im = new Image();
@@ -125,8 +135,7 @@ export default function Page() {
         if (c.width !== width || c.height !== height) { c.width = width; c.height = height; }
         const ctx = c.getContext("2d")!;
         ctx.clearRect(0, 0, width, height); ctx.drawImage(bg, 0, 0, width, height);
-        const pw = Math.max(24, parseInt(slideW || "0", 10) || 0);
-        const ph = slideShape === "circle" ? pw : Math.max(24, parseInt(slideH || "0", 10) || 0);
+        const pw = Math.max(24, parseInt(slideW || "0", 10) || 0), ph = slideShape === "circle" ? pw : Math.max(24, parseInt(slideH || "0", 10) || 0);
         if (pw >= 24 && ph >= 24) {
           const patch = renderRefractedGlassPatch(bg, width, height, slidePos.x, slidePos.y, { width: pw, height: ph, shape: slideShape, theme, frostOpacity: slideOpacity / 100 });
           ctx.drawImage(patch, Math.round(slidePos.x - (patch.width - pw) / 2), Math.round(slidePos.y - (patch.height - ph) / 2));
@@ -141,7 +150,7 @@ export default function Page() {
   useEffect(() => {
     if (screen !== "bg-workspace" || !media) return;
     let raf = 0;
-    const STAGE_W = 860, STAGE_H = 700;
+    const STAGE_W = 860, STAGE_H = 700, PAD = 58;
     const renderLoop = (now: number) => {
       if (exportingMotion?.fmt === "gif") { raf = requestAnimationFrame(renderLoop); return; }
       const canvas = bgStageCanvasRef.current;
@@ -149,20 +158,22 @@ export default function Page() {
         if (canvas.width !== STAGE_W || canvas.height !== STAGE_H) { canvas.width = STAGE_W; canvas.height = STAGE_H; }
         const ctx = canvas.getContext("2d")!;
         const fw = frameDims.width, fh = frameDims.height;
+
+        // Format frame size & position ALWAYS stay locked regardless of image scale or pan
+        const vs = Math.min((STAGE_W - PAD * 2) / fw, (STAGE_H - PAD * 2) / fh);
+        const ox = (STAGE_W - fw * vs) / 2, oy = (STAGE_H - fh * vs) / 2;
+        viewTransformRef.current = { scale: vs, ox, oy };
+
         const scaledW = media.width * mediaScale, scaledH = media.height * mediaScale;
         const mx = fw / 2 + mediaPan.x - scaledW / 2, my = fh / 2 + mediaPan.y - scaledH / 2;
-        if (!viewTransformRef.current.frozen) {
-          const minX = Math.min(0, mx), minY = Math.min(0, my), maxX = Math.max(fw, mx + scaledW), maxY = Math.max(fh, my + scaledH);
-          const uW = Math.max(1, maxX - minX), uH = Math.max(1, maxY - minY);
-          const vScale = Math.min((STAGE_W - 52) / uW, (STAGE_H - 52) / uH);
-          viewTransformRef.current = { scale: vScale, ox: (STAGE_W - uW * vScale) / 2 - minX * vScale, oy: (STAGE_H - uH * vScale) / 2 - minY * vScale, frozen: false };
-        }
-        const { scale: vs, ox, oy } = viewTransformRef.current;
+
         ctx.clearRect(0, 0, STAGE_W, STAGE_H);
         ctx.fillStyle = "#F4F5F7"; ctx.fillRect(0, 0, STAGE_W, STAGE_H);
         const drawable = getMediaFrameAt(media, now);
+
+        // Overhang outside the stage crops off cleanly at STAGE_W x STAGE_H
         ctx.drawImage(drawable, ox + mx * vs, oy + my * vs, scaledW * vs, scaledH * vs);
-        ctx.save(); ctx.fillStyle = "rgba(244, 245, 247, 0.72)"; ctx.beginPath(); ctx.rect(0, 0, STAGE_W, STAGE_H); ctx.rect(ox, oy, fw * vs, fh * vs); ctx.fill("evenodd"); ctx.restore();
+        ctx.save(); ctx.fillStyle = "rgba(244, 245, 247, 0.76)"; ctx.beginPath(); ctx.rect(0, 0, STAGE_W, STAGE_H); ctx.rect(ox, oy, fw * vs, fh * vs); ctx.fill("evenodd"); ctx.restore();
 
         const pW = Math.max(64, Math.round(fw * vs)), pH = Math.max(64, Math.round(fh * vs));
         const fBuf = document.createElement("canvas"); fBuf.width = pW; fBuf.height = pH;
@@ -174,11 +185,12 @@ export default function Page() {
         renderFrameWithPanels(fBuf.getContext("2d")!, pW, pH, drawable, mx * vs, my * vs, scaledW * vs, scaledH * vs, pPanels, bgOpacity / 100);
         ctx.drawImage(fBuf, ox, oy);
 
-        ctx.strokeStyle = "#121317"; ctx.lineWidth = 1.5; ctx.strokeRect(ox, oy, fw * vs, fh * vs);
+        ctx.strokeStyle = "#121317"; ctx.lineWidth = 1.75; ctx.strokeRect(ox, oy, fw * vs, fh * vs);
         const rx = ox + mx * vs, ry = oy + my * vs, rw = scaledW * vs, rh = scaledH * vs;
         ctx.save(); ctx.setLineDash([4, 4]); ctx.strokeStyle = "rgba(18,19,23,0.45)"; ctx.lineWidth = 1; ctx.strokeRect(rx, ry, rw, rh); ctx.restore();
         for (const [cx, cy] of [[rx, ry], [rx + rw, ry], [rx, ry + rh], [rx + rw, ry + rh]]) {
-          ctx.beginPath(); ctx.arc(cx, cy, 6.5, 0, Math.PI * 2); ctx.fillStyle = "#FFF"; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#121317"; ctx.stroke();
+          const hcx = Math.max(9, Math.min(STAGE_W - 9, cx)), hcy = Math.max(9, Math.min(STAGE_H - 9, cy));
+          ctx.beginPath(); ctx.arc(hcx, hcy, 6.5, 0, Math.PI * 2); ctx.fillStyle = "#FFF"; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#121317"; ctx.stroke();
         }
       }
       raf = requestAnimationFrame(renderLoop);
@@ -192,7 +204,7 @@ export default function Page() {
     setMediaScale(1); setMediaPan({ x: 0, y: 0 }); setBgOpacity(50);
     const iw = Math.min(560, Math.max(120, Math.round(loaded.width * 0.36))), ih = Math.min(220, Math.max(80, Math.round(loaded.height * 0.22)));
     setPanels([{ id: "p1", shape: "text-panel", theme: "imagery", widthInput: String(iw), heightInput: String(ih), x: Math.round((loaded.width - iw) / 2), y: Math.round((loaded.height - ih) / 2) }]);
-    setShowMomentumModal(false); setScreen("bg-workspace");
+    setShowMomentumModal(false); setDriveDownloadStatus(""); setScreen("bg-workspace");
   };
 
   const handleIngestFile = async (file?: File | null) => {
@@ -203,19 +215,48 @@ export default function Page() {
     finally { setIsLoadingFile(false); if (fileInputRef.current) fileInputRef.current.value = ""; }
   };
 
-  const handleImportDriveLink = async () => {
-    const m = driveUrlInput.match(/[-\w]{25,}/);
-    if (!m) { showToast("Paste a Drive file link or drop the downloaded file below"); return; }
-    setIsLoadingFile(true);
+  const openMomentumDriveBrowser = async (overrideId?: string) => {
+    setShowMomentumModal(true); setDriveError("");
+    const cid = (overrideId ?? clientIdInput ?? getConfiguredGoogleClientId()).trim();
+    if (!cid) return;
+    if (typeof window !== "undefined" && !process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID) {
+      window.localStorage.setItem("gfs_google_client_id", cid);
+    }
+    setDriveLoading(true);
     try {
-      const res = await fetch(`/api/drive-fetch?id=${m[0]}`);
-      if (!res.ok) throw new Error("Download from the open Drive tab & drop file here");
-      const blob = await res.blob();
-      const ext = blob.type.includes("mp4") ? "mp4" : blob.type.includes("gif") ? "gif" : "png";
-      await handleIngestFile(new File([blob], `momentum-asset.${ext}`, { type: blob.type }));
-      setDriveUrlInput("");
-    } catch (err: any) { showToast(err?.message || "Download from Drive tab and drop file below"); }
-    finally { setIsLoadingFile(false); }
+      const tok = await getDriveAccessToken(cid);
+      setDriveToken(tok);
+      const curFolder = driveStack[driveStack.length - 1]?.id || GFS_MOMENTUM_FOLDER_ID;
+      setDriveItems(await listDriveFolderItems(tok, curFolder));
+    } catch (err: any) {
+      setDriveError(err?.message || "Could not connect to Google Drive");
+    } finally {
+      setDriveLoading(false);
+    }
+  };
+
+  const navigateDriveFolder = async (folderId: string, folderName: string, sliceTo?: number) => {
+    if (!driveToken) return;
+    setDriveLoading(true); setDriveError("");
+    try {
+      const nextStack = sliceTo !== undefined ? driveStack.slice(0, sliceTo + 1) : [...driveStack, { id: folderId, name: folderName }];
+      setDriveStack(nextStack);
+      setDriveItems(await listDriveFolderItems(driveToken, folderId));
+    } catch (err: any) { setDriveError(err?.message || "Failed to load folder"); }
+    finally { setDriveLoading(false); }
+  };
+
+  const selectMomentumDriveItem = async (item: DriveItem) => {
+    if (item.isFolder) { navigateDriveFolder(item.targetId, item.name); return; }
+    if (!driveToken) return;
+    setDriveDownloadStatus(`Importing ${item.name} (0%)...`); setDriveError("");
+    try {
+      const file = await downloadDriveFileDirect(driveToken, item, (pct) => setDriveDownloadStatus(`Importing ${item.name} (${pct}%)...`));
+      applyLoadedMedia(await loadUniversalMediaFile(file));
+    } catch (err: any) {
+      setDriveError(err?.message || "Failed to import file");
+      setDriveDownloadStatus("");
+    }
   };
 
   const applyResizePreset = (next: ResizePreset) => {
@@ -233,12 +274,12 @@ export default function Page() {
 
   const onBgStageDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!media || !bgStageCanvasRef.current) return;
-    const rect = bgStageCanvasRef.current.getBoundingClientRect();
-    const sx = (e.clientX - rect.left) * (bgStageCanvasRef.current.width / rect.width);
-    const sy = (e.clientY - rect.top) * (bgStageCanvasRef.current.height / rect.height);
+    const cEl = bgStageCanvasRef.current, rect = cEl.getBoundingClientRect();
+    const sx = (e.clientX - rect.left) * (cEl.width / rect.width), sy = (e.clientY - rect.top) * (cEl.height / rect.height);
     const { scale: vs, ox, oy } = viewTransformRef.current;
     const fw = frameDims.width, fh = frameDims.height, sw = media.width * mediaScale, sh = media.height * mediaScale;
     const mx = fw / 2 + mediaPan.x - sw / 2, my = fh / 2 + mediaPan.y - sh / 2;
+    const fx = (sx - ox) / vs, fy = (sy - oy) / vs;
 
     const corners: { key: "tl" | "tr" | "bl" | "br"; cx: number; cy: number; ax: number; ay: number }[] = [
       { key: "tl", cx: ox + mx * vs, cy: oy + my * vs, ax: mx + sw, ay: my + sh },
@@ -247,13 +288,12 @@ export default function Page() {
       { key: "br", cx: ox + (mx + sw) * vs, cy: oy + (my + sh) * vs, ax: mx, ay: my },
     ];
     for (const c of corners) {
-      if (Math.hypot(sx - c.cx, sy - c.cy) <= 16) {
-        viewTransformRef.current.frozen = true;
-        dragRef.current = { kind: "bg-corner", corner: c.key, anchorX: c.ax, anchorY: c.ay };
+      const hcx = Math.max(9, Math.min(cEl.width - 9, c.cx)), hcy = Math.max(9, Math.min(cEl.height - 9, c.cy));
+      if (Math.hypot(sx - hcx, sy - hcy) <= 16) {
+        dragRef.current = { kind: "bg-corner", corner: c.key, anchorX: c.ax, anchorY: c.ay, startScale: mediaScale, startDist: Math.max(12, Math.hypot(fx - c.ax, fy - c.ay)) };
         e.currentTarget.setPointerCapture(e.pointerId); return;
       }
     }
-    const fx = (sx - ox) / vs, fy = (sy - oy) / vs;
     for (let i = panels.length - 1; i >= 0; i--) {
       const p = panels[i], pw = Math.max(24, parseInt(p.widthInput || "0", 10) || 0), ph = p.shape === "circle" ? pw : Math.max(24, parseInt(p.heightInput || "0", 10) || 0);
       if (fx >= p.x && fx <= p.x + pw && fy >= p.y && fy <= p.y + ph) {
@@ -261,23 +301,20 @@ export default function Page() {
         e.currentTarget.setPointerCapture(e.pointerId); return;
       }
     }
-    viewTransformRef.current.frozen = true;
     dragRef.current = { kind: "bg-pan", startPanX: mediaPan.x, startPanY: mediaPan.y, startClickX: fx, startClickY: fy };
     e.currentTarget.setPointerCapture(e.pointerId);
   };
 
   const onBgStageMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (dragRef.current.kind === "none" || !media || !bgStageCanvasRef.current) return;
-    const rect = bgStageCanvasRef.current.getBoundingClientRect();
-    const sx = (e.clientX - rect.left) * (bgStageCanvasRef.current.width / rect.width);
-    const sy = (e.clientY - rect.top) * (bgStageCanvasRef.current.height / rect.height);
+    const cEl = bgStageCanvasRef.current, rect = cEl.getBoundingClientRect();
+    const sx = (e.clientX - rect.left) * (cEl.width / rect.width), sy = (e.clientY - rect.top) * (cEl.height / rect.height);
     const { scale: vs, ox, oy } = viewTransformRef.current;
     const fx = (sx - ox) / vs, fy = (sy - oy) / vs;
     if (dragRef.current.kind === "bg-corner") {
-      const { anchorX = 0, anchorY = 0, corner } = dragRef.current;
-      const rawW = corner === "tl" || corner === "bl" ? anchorX - fx : fx - anchorX;
-      const rawH = corner === "tl" || corner === "tr" ? anchorY - fy : fy - anchorY;
-      const ns = Math.max(0.08, Math.min(8, Math.max(rawW / media.width, rawH / media.height)));
+      const { anchorX = 0, anchorY = 0, corner, startScale = 1, startDist = 100 } = dragRef.current;
+      const curDist = Math.max(8, Math.hypot(fx - anchorX, fy - anchorY));
+      const ns = Math.max(0.08, Math.min(8, startScale * (curDist / startDist)));
       const nw = media.width * ns, nh = media.height * ns;
       const nmx = corner === "tl" || corner === "bl" ? anchorX - nw : anchorX;
       const nmy = corner === "tl" || corner === "tr" ? anchorY - nh : anchorY;
@@ -295,7 +332,7 @@ export default function Page() {
   };
 
   const onBgStageUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (dragRef.current.kind !== "none") { dragRef.current = { kind: "none" }; viewTransformRef.current.frozen = false; try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {} }
+    if (dragRef.current.kind !== "none") { dragRef.current = { kind: "none" }; try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {} }
   };
 
   const downloadBlob = (blob: Blob, filename: string) => {
@@ -352,6 +389,8 @@ export default function Page() {
   };
 
   const visibleCats = stickerFilter === "all" ? STICKER_CATEGORIES : STICKER_CATEGORIES.filter((c) => c.id === stickerFilter);
+  const filteredDriveItems = driveSearch.trim() ? driveItems.filter((i) => i.name.toLowerCase().includes(driveSearch.toLowerCase())) : driveItems;
+  const activeClientId = (process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || clientIdInput).trim();
 
   return (
     <div
@@ -365,7 +404,12 @@ export default function Page() {
         {screen !== "home" ? (
           <div className="flex items-center gap-2">
             <button onClick={goBack} className="inline-flex items-center gap-1.5 text-xs font-medium text-neutral-700 hover:text-black bg-white/95 px-3 py-1.5 rounded-full border border-neutral-200 shadow-sm cursor-pointer"><ArrowLeft className="w-3.5 h-3.5" /> Back</button>
-            {screen === "bg-workspace" && <button onClick={() => fileInputRef.current?.click()} className="inline-flex items-center gap-1.5 text-xs font-medium text-neutral-700 hover:text-black bg-white/95 px-3 py-1.5 rounded-full border border-neutral-200 shadow-sm cursor-pointer"><Upload className="w-3.5 h-3.5" /> Replace file</button>}
+            {screen === "bg-workspace" && (
+              <>
+                <button onClick={() => fileInputRef.current?.click()} className="inline-flex items-center gap-1.5 text-xs font-medium text-neutral-700 hover:text-black bg-white/95 px-3 py-1.5 rounded-full border border-neutral-200 shadow-sm cursor-pointer"><Upload className="w-3.5 h-3.5" /> Replace file</button>
+                <button onClick={() => openMomentumDriveBrowser()} className="inline-flex items-center gap-1.5 text-xs font-medium text-neutral-700 hover:text-black bg-white/95 px-3 py-1.5 rounded-full border border-neutral-200 shadow-sm cursor-pointer"><Folder className="w-3.5 h-3.5" /> GFS Momentum Drive</button>
+              </>
+            )}
           </div>
         ) : <span />}
         <div className="flex items-center gap-3">
@@ -375,28 +419,94 @@ export default function Page() {
       </div>
 
       {showMomentumModal && (
-        <div className="fixed inset-0 z-50 bg-black/45 backdrop-blur-xs flex items-center justify-center p-4" onClick={() => setShowMomentumModal(false)}>
-          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-neutral-200 p-6 space-y-4">
-            <div className="flex items-start justify-between">
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => !driveDownloadStatus && setShowMomentumModal(false)}>
+          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-neutral-200 overflow-hidden flex flex-col max-h-[84vh]">
+            <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between">
               <div>
-                <h3 className="text-base font-semibold">Upload GFS Momentum Asset</h3>
-                <p className="text-xs text-neutral-600 mt-1">Download any <strong>.mp4, .psd, .gif, .png, .jpeg, .mov</strong> or image/motion file from the open Drive folder and drop or select it here:</p>
+                <h3 className="text-base font-semibold">GFS Momentum Assets — Direct Google Drive Import</h3>
+                <p className="text-xs text-neutral-500">Click any .mp4, .psd, .gif, .png, .jpeg, or motion/image asset below to load straight into the app.</p>
               </div>
-              <button onClick={() => setShowMomentumModal(false)} className="p-1 text-neutral-400 hover:text-black cursor-pointer"><X className="w-4 h-4" /></button>
+              <button onClick={() => !driveDownloadStatus && setShowMomentumModal(false)} className="p-1.5 text-neutral-400 hover:text-black cursor-pointer"><X className="w-4 h-4" /></button>
             </div>
-            <div onClick={() => fileInputRef.current?.click()} className="border-2 border-dashed border-neutral-300 hover:border-neutral-900 rounded-xl p-7 text-center cursor-pointer transition bg-neutral-50/70">
-              <Upload className="w-6 h-6 mx-auto mb-2 text-neutral-700" />
-              <p className="text-xs font-semibold">Click to choose file or drag &amp; drop here</p>
-              <p className="text-[11px] text-neutral-500 mt-1">Supports .psd, .mp4, .gif, .png, .jpeg, .mov, .webm, .tif &amp; more</p>
-            </div>
-            <div className="space-y-1.5 pt-1">
-              <label className="text-[11px] font-medium text-neutral-600">Or paste a shared Google Drive file link:</label>
-              <div className="flex gap-2">
-                <input type="text" placeholder="https://drive.google.com/file/d/..." value={driveUrlInput} onChange={(e) => setDriveUrlInput(e.target.value)} className="flex-1 h-8 px-2.5 text-xs border border-neutral-300 rounded-lg" />
-                <button onClick={handleImportDriveLink} className="px-3 h-8 rounded-lg bg-[#121317] text-white text-xs font-medium cursor-pointer">Load</button>
+
+            {!activeClientId || (!driveToken && !driveLoading) ? (
+              <div className="p-6 space-y-4">
+                {!process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID && (
+                  <div className="space-y-1.5 bg-neutral-50 border border-neutral-200 rounded-xl p-4">
+                    <label className="text-xs font-semibold block">One-Time Setup: Google OAuth Web Client ID</label>
+                    <p className="text-[11px] text-neutral-600">Paste your Google Cloud Web Client ID below (or set <code>NEXT_PUBLIC_GOOGLE_CLIENT_ID</code> in Vercel so teammates never see this step):</p>
+                    <div className="flex gap-2 pt-1">
+                      <input type="text" placeholder="123456789-abc...apps.googleusercontent.com" value={clientIdInput} onChange={(e) => setClientIdInput(e.target.value)} className="flex-1 h-8 px-2.5 text-xs border border-neutral-300 rounded-lg bg-white" />
+                      <button onClick={() => openMomentumDriveBrowser(clientIdInput)} className="px-4 h-8 rounded-lg bg-[#121317] text-white text-xs font-semibold cursor-pointer">Connect Drive</button>
+                    </div>
+                  </div>
+                )}
+                {process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID && (
+                  <button onClick={() => openMomentumDriveBrowser()} className="w-full py-3 rounded-xl bg-[#121317] text-white text-xs font-semibold cursor-pointer hover:bg-neutral-800 transition">Sign in with Google to browse GFS Momentum Folder</button>
+                )}
+                {driveError && <p className="text-xs text-red-600 font-medium">{driveError}</p>}
+                <div className="pt-2 border-t border-neutral-100 flex items-center justify-between text-xs text-neutral-500">
+                  <button onClick={() => fileInputRef.current?.click()} className="underline hover:text-black cursor-pointer">Or choose a local file from your computer</button>
+                  <a href={GFS_MOMENTUM_DRIVE_URL} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:underline">Open folder in Google Drive <ExternalLink className="w-3 h-3" /></a>
+                </div>
               </div>
-            </div>
-            <a href={GFS_MOMENTUM_DRIVE_URL} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 hover:underline">Re-open GFS Momentum Drive folder <ExternalLink className="w-3 h-3" /></a>
+            ) : (
+              <>
+                <div className="px-5 py-2.5 bg-neutral-50 border-b border-neutral-200 flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-1 text-xs font-medium overflow-x-auto">
+                    {driveStack.map((crumb, idx) => (
+                      <React.Fragment key={crumb.id}>
+                        {idx > 0 && <ChevronRight className="w-3.5 h-3.5 text-neutral-400 shrink-0" />}
+                        <button onClick={() => navigateDriveFolder(crumb.id, crumb.name, idx)} className={`hover:underline cursor-pointer truncate max-w-[160px] ${idx === driveStack.length - 1 ? "font-semibold text-black" : "text-neutral-600"}`}>{crumb.name}</button>
+                      </React.Fragment>
+                    ))}
+                  </div>
+                  <div className="relative w-48">
+                    <Search className="w-3.5 h-3.5 text-neutral-400 absolute left-2.5 top-2" />
+                    <input type="text" placeholder="Filter files..." value={driveSearch} onChange={(e) => setDriveSearch(e.target.value)} className="w-full h-7 pl-8 pr-2 text-xs bg-white border border-neutral-300 rounded-lg" />
+                  </div>
+                </div>
+
+                <div className="p-5 overflow-y-auto flex-1 min-h-[280px]">
+                  {driveDownloadStatus ? (
+                    <div className="h-56 flex flex-col items-center justify-center gap-3 text-center">
+                      <div className="w-8 h-8 rounded-full border-2 border-neutral-300 border-t-[#121317] animate-spin" />
+                      <p className="text-xs font-semibold">{driveDownloadStatus}</p>
+                      <p className="text-[11px] text-neutral-500">Streaming directly into workspace (no local download required)</p>
+                    </div>
+                  ) : driveLoading ? (
+                    <div className="h-56 flex items-center justify-center text-xs text-neutral-500">Loading GFS Momentum folder...</div>
+                  ) : driveError ? (
+                    <div className="space-y-3 text-center py-10">
+                      <p className="text-xs text-red-600 font-medium">{driveError}</p>
+                      <button onClick={() => openMomentumDriveBrowser()} className="px-4 py-1.5 rounded-full bg-[#121317] text-white text-xs cursor-pointer">Retry</button>
+                    </div>
+                  ) : filteredDriveItems.length === 0 ? (
+                    <p className="text-xs text-neutral-500 text-center py-12">No matching image, PSD, or motion files in this folder.</p>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      {filteredDriveItems.map((it) => (
+                        <button key={it.id} type="button" onClick={() => selectMomentumDriveItem(it)} className="group text-left p-2.5 rounded-xl border border-neutral-200 hover:border-[#121317] hover:shadow-sm transition flex flex-col gap-2 cursor-pointer bg-white">
+                          <div className="w-full h-24 rounded-lg bg-neutral-100 flex items-center justify-center overflow-hidden relative">
+                            {it.isFolder ? (
+                              <Folder className="w-9 h-9 text-amber-500 fill-amber-100" />
+                            ) : it.thumbnailLink ? (
+                              <img src={it.thumbnailLink} alt={it.name} className="w-full h-full object-cover group-hover:scale-105 transition" referrerPolicy="no-referrer" />
+                            ) : (
+                              <span className="text-[11px] font-bold uppercase text-neutral-500">{it.name.split(".").pop()}</span>
+                            )}
+                          </div>
+                          <div className="w-full">
+                            <p className="text-[11px] font-medium truncate text-[#121317]" title={it.name}>{it.name}</p>
+                            <p className="text-[10px] text-neutral-400">{it.isFolder ? "Folder" : (it.name.split(".").pop() || "Asset").toUpperCase()}</p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -408,7 +518,7 @@ export default function Page() {
           {screen === "sticker-cover" && <><img src={PAGE_ASSETS.stickerCover} alt="Stickers" className="w-full h-full object-cover select-none" />{renderZones(BUTTON_ZONES.stickerCover, [() => { setTheme("imagery"); setStickerFilter("all"); setScreen("sticker-sheet"); }, () => { setTheme("grey1200"); setStickerFilter("all"); setScreen("sticker-sheet"); }, () => { setTheme("white"); setStickerFilter("all"); setScreen("sticker-sheet"); }])}</>}
           {screen === "slides-create-cover" && <><img src={PAGE_ASSETS.slidesCreateCover} alt="Create" className="w-full h-full object-cover select-none" />{renderZones(BUTTON_ZONES.slidesCreateCover, [() => { setTheme("imagery"); setSlideOpacity(50); setScreen("slides-fullbleed"); }, () => { setTheme("grey1200"); setSlideOpacity(50); setScreen("slides-workspace"); }, () => { setTheme("white"); setSlideOpacity(50); setScreen("slides-workspace"); }])}</>}
           {screen === "slides-fullbleed" && <><img src={PAGE_ASSETS.slidesFullBleedCover} alt="Examples" className="w-full h-full object-cover select-none" />{renderZones(BUTTON_ZONES.fullBleedPhotos, [0,1,2,3].map((i) => () => { setImageryIdx(i); setTheme("imagery"); setSlideOpacity(50); setScreen("slides-workspace"); }))}</>}
-          {screen === "bg-upload-cover" && <><img src={PAGE_ASSETS.bgUploadCover} alt="Upload" className="w-full h-full object-cover select-none" />{renderZones(BUTTON_ZONES.bgUploadCover, [() => fileInputRef.current?.click(), () => { window.open(GFS_MOMENTUM_DRIVE_URL, "_blank", "noopener,noreferrer"); setShowMomentumModal(true); }])}</>}
+          {screen === "bg-upload-cover" && <><img src={PAGE_ASSETS.bgUploadCover} alt="Upload" className="w-full h-full object-cover select-none" />{renderZones(BUTTON_ZONES.bgUploadCover, [() => fileInputRef.current?.click(), () => openMomentumDriveBrowser()])}</>}
 
           {screen === "slides-workspace" && (
             <div className="relative w-full h-full">
@@ -452,7 +562,7 @@ export default function Page() {
             <div className="relative w-full h-full">
               <img src={PAGE_ASSETS.bgInternal} alt="" className="w-full h-full object-cover select-none pointer-events-none" />
               <div className="absolute z-10 left-[4.2%] w-[43.5%] top-[16.5%] bottom-[7.5%] flex items-center justify-center">
-                <canvas ref={bgStageCanvasRef} onPointerDown={onBgStageDown} onPointerMove={onBgStageMove} onPointerUp={onBgStageUp} className="max-w-full max-h-full object-contain rounded shadow-xs cursor-move" />
+                <canvas ref={bgStageCanvasRef} onPointerDown={onBgStageDown} onPointerMove={onBgStageMove} onPointerUp={onBgStageUp} className="max-w-full max-h-full object-contain rounded shadow-sm cursor-move" />
               </div>
               <div className="absolute z-10 left-[50%] right-[5%] top-[53.5%] bottom-[3.5%] overflow-y-auto pr-2 flex flex-col gap-2">
                 <div className="flex flex-wrap items-end gap-2.5">
@@ -492,7 +602,7 @@ export default function Page() {
       ) : (
         <div className="w-full max-w-[1180px] bg-white rounded-2xl shadow-xl overflow-hidden border border-neutral-200 flex flex-col">
           <img src={theme === "grey1200" ? PAGE_ASSETS.stickerGrey1200 : theme === "white" ? PAGE_ASSETS.stickerWhite : PAGE_ASSETS.stickerImagery} alt="Sticker sheet header" className="w-full h-auto block select-none" />
-          <div className="w-full bg-white pt-1 pb-6 px-6 flex flex-wrap items-center justify-center gap-2">
+          <div className="w-full bg-white pt-3 pb-8 px-6 flex flex-wrap items-center justify-center gap-2">
             {[{ id: "all", label: "All (80)" }, { id: "squares", label: "Squares (20)" }, { id: "horizontal", label: "Horizontal (20)" }, { id: "vertical", label: "Vertical (20)" }, { id: "pills", label: "CTA Pills (10)" }, { id: "circles", label: "Circles (10)" }].map((tab) => (
               <button key={tab.id} onClick={() => { setStickerFilter(tab.id); setOpenStickerKey(null); }} className={`px-3.5 py-1.5 rounded-full text-xs font-medium border transition cursor-pointer ${stickerFilter === tab.id ? "bg-[#121317] text-white border-[#121317]" : "bg-white text-neutral-700 border-neutral-300 hover:border-neutral-900"}`}>{tab.label}</button>
             ))}
