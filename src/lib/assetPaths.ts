@@ -7,11 +7,11 @@ export const PAGE_ASSETS = {
   "slidesFullBleedCover": "/assets/glass-panel-app_16_9-full-bleed-image-cover.png?v=1795645950",
   "slidesInternal": "/assets/glass-panel-app_16_9-export-just-a-panel-internal-page.png?v=1795645950",
   "stickerCover": "/assets/glass-panel-app_16_9-sticker-sheet-cover.png?v=1795645950",
-  "stickerImagery": "/assets/glass-panel-app_16_9-sticker-sheet-internal-imagery.png?v=1795645950",
-  "stickerGrey1200": "/assets/glass-panel-app_16_9-sticker-sheet-internal-grey-1200.png?v=1795645950",
-  "stickerWhite": "/assets/glass-panel-app_16_9-sticker-sheet-internal-white.png?v=1795645950",
-  "bgUploadCover": "/assets/glass-panel-app_16_9-export-a-panel-on-your-background-cover.png?v=1795645950",
-  "bgInternal": "/assets/glass-panel-app_16_9-export-on-a-background-internal-page.png?v=1795645950"
+  "stickerImagery": "/assets/sticker-header-imagery-v4.png",
+  "stickerGrey1200": "/assets/sticker-header-grey1200-v4.png",
+  "stickerWhite": "/assets/sticker-header-white-v4.png",
+  "bgUploadCover": "/assets/bg-upload-cover-v5.png",
+  "bgInternal": "/assets/bg-internal-page-v5.png"
 } as const;
 export const BG_ASSETS = { imageryExamples: [
   "/assets/3._background_imagery_3a._1_1_glass_panel_app_1_1_image_option_1.png?v=1795645950",
