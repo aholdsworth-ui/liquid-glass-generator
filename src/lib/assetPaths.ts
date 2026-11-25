@@ -1,34 +1,34 @@
 export const PAGE_ASSETS = {
-  "home": "",
-  "slidesPreCover": "/assets/2._App_pages_Glass_panel_app_16_9_Export_just_a_panel_PRE-cover.png?v=1795638162",
-  "slidesBgSelect": "/assets/2._App_pages_Glass_panel_app_16_9_Export_just_a_panel_cover.png?v=1795638162",
-  "fullBleedPicker": "/assets/2._App_pages_Glass_panel_app_16_9_Full_bleed_image_cover.png?v=1795638162",
-  "slidesWorkspace": "/assets/2._App_pages_Glass_panel_app_16_9_Export_just_a_panel_internal_page.png?v=1795638162",
-  "bgUploadCover": "/assets/2._App_pages_Glass_panel_app_16_9_Export_a_panel_on_your_background_cover.png?v=1795638162",
-  "bgWorkspace": "/assets/2._App_pages_Glass_panel_app_16_9_Export_on_a_background_internal_page.png?v=1795638162",
-  "stickerCover": "/assets/2._App_pages_Glass_panel_app_16_9_sticker_sheet_cover.png?v=1795638162",
-  "stickerHeaderImagery": "/assets/2._App_pages_Glass_panel_app_16_9_sticker_sheet_internal_imagery.png?v=1795638162",
-  "stickerHeaderGrey1200": "/assets/2._App_pages_Glass_panel_app_16_9_sticker_sheet_internal_grey_1200.png?v=1795638162",
-  "stickerHeaderWhite": "/assets/2._App_pages_Glass_panel_app_16_9_sticker_sheet_internal_white.png?v=1795638162"
+  "home": "/assets/glass-panel-app_16_9-cover.png?v=1795638391",
+  "slidesPreCover": "/assets/glass-panel-app_16_9-export-just-a-panel-pre-cover.png?v=1795638391",
+  "slidesBgSelect": "/assets/glass-panel-app_16_9-export-just-a-panel-cover.png?v=1795638391",
+  "fullBleedPicker": "/assets/glass-panel-app_16_9-full-bleed-image-cover.png?v=1795638391",
+  "slidesWorkspace": "/assets/glass-panel-app_16_9-export-just-a-panel-internal-page.png?v=1795638391",
+  "bgUploadCover": "/assets/glass-panel-app_16_9-export-a-panel-on-your-background-cover.png?v=1795638391",
+  "bgWorkspace": "/assets/glass-panel-app_16_9-export-on-a-background-internal-page.png?v=1795638391",
+  "stickerCover": "/assets/glass-panel-app_16_9-sticker-sheet-cover.png?v=1795638391",
+  "stickerHeaderImagery": "/assets/glass-panel-app_16_9-sticker-sheet-internal-imagery.png?v=1795638391",
+  "stickerHeaderGrey1200": "/assets/glass-panel-app_16_9-sticker-sheet-internal-grey-1200.png?v=1795638391",
+  "stickerHeaderWhite": "/assets/glass-panel-app_16_9-sticker-sheet-internal-white.png?v=1795638391"
 } as const;
 export const BG_ASSETS = {
   "imagery": [
-    "/assets/3._Background_imagery_3a._1_1_Glass_panel_app_1_1_image_option_1.png?v=1795638162",
-    "/assets/3._Background_imagery_3a._1_1_Glass_panel_app_1_1_image_option_4.png?v=1795638162",
-    "/assets/3._Background_imagery_3b._4_5_Glass_panel_app_4_5_image_option_3.png?v=1795638162",
-    "/assets/3._Background_imagery_3b._4_5_Glass_panel_app_4_5_image_option_2.png?v=1795638162"
+    "/assets/3._Background_imagery_3a._1_1_Glass_panel_app_1_1_image_option_1.png?v=1795638391",
+    "/assets/3._Background_imagery_3a._1_1_Glass_panel_app_1_1_image_option_4.png?v=1795638391",
+    "/assets/3._Background_imagery_3b._4_5_Glass_panel_app_4_5_image_option_3.png?v=1795638391",
+    "/assets/3._Background_imagery_3b._4_5_Glass_panel_app_4_5_image_option_2.png?v=1795638391"
   ],
   "grey1200": {
-    "1:1": "/assets/3._Background_imagery_3a._1_1_Glass_panel_app_1_1_Grey_1200.png?v=1795638162",
-    "4:5": "/assets/3._Background_imagery_3b._4_5_Glass_panel_app_4_5_Grey_1200.png?v=1795638162",
-    "9:16": "/assets/3._Background_imagery_3c._9_16_Glass_panel_app_9_16_Grey_1200.png?v=1795638162",
-    "16:9": "/assets/3._Background_imagery_3d._16_9_Glass_panel_app_16_9_Grey_1200.png?v=1795638162"
+    "1:1": "/assets/glass-panel-app_1_1-grey-1200.png?v=1795638391",
+    "4:5": "/assets/glass-panel-app_4_5-grey-1200.png?v=1795638391",
+    "9:16": "/assets/glass-panel-app_9_16-grey-1200.png?v=1795638391",
+    "16:9": "/assets/glass-panel-app_16_9-grey-1200.png?v=1795638391"
   },
   "white": {
-    "1:1": "/assets/3._Background_imagery_3a._1_1_Glass_panel_app_1_1_White.png?v=1795638162",
-    "4:5": "/assets/3._Background_imagery_3b._4_5_Glass_panel_app_4_5_White.png?v=1795638162",
-    "9:16": "/assets/3._Background_imagery_3c._9_16_Glass_panel_app_9_16_White.png?v=1795638162",
-    "16:9": "/assets/3._Background_imagery_3d._16_9_Glass_panel_app_16_9_White.png?v=1795638162"
+    "1:1": "/assets/glass-panel-app_1_1-white.png?v=1795638391",
+    "4:5": "/assets/glass-panel-app_4_5-white.png?v=1795638391",
+    "9:16": "/assets/glass-panel-app_9_16-white.png?v=1795638391",
+    "16:9": "/assets/glass-panel-app_16_9-white.png?v=1795638391"
   }
 } as const;
 export const BUTTON_ZONES: Record<string, [number, number, number, number][]> = {
