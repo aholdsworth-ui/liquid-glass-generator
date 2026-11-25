@@ -162,16 +162,16 @@ function erfcApprox(x: number): number {
 
 export function getShadowMetrics(w: number, h: number, theme: GlassTheme) {
   const m = Math.min(w, h);
-  const sigma = Math.max(2.2, Math.min(5.8, m * 0.065));
-  const offsetY = Math.max(1.2, Math.min(4.0, m * 0.042));
-  const pad = Math.ceil(offsetY + sigma * 3.0);
+  const sigma = Math.max(1.5, Math.min(2.8, m * 0.034));
+  const offsetY = Math.max(1.0, Math.min(2.0, m * 0.024));
+  const pad = Math.ceil(offsetY + sigma * 3.2);
   if (theme === "white") {
-    return { pad, offsetY, sigma, alpha: 0.125, r: 15, g: 23, b: 42 };
+    return { pad, offsetY, sigma, alpha: 0.21, r: 0, g: 0, b: 0 };
   }
   if (theme === "grey1200") {
-    return { pad, offsetY, sigma, alpha: 0.34, r: 0, g: 0, b: 0 };
+    return { pad, offsetY, sigma, alpha: 0.48, r: 0, g: 0, b: 0 };
   }
-  return { pad, offsetY, sigma, alpha: 0.175, r: 10, g: 14, b: 24 };
+  return { pad, offsetY, sigma, alpha: 0.25, r: 0, g: 0, b: 0 };
 }
 
 function evaluateGlassSurface(
@@ -189,80 +189,68 @@ function evaluateGlassSurface(
   const s = Math.max(0, Math.min(maxOp, frostOpacity));
   const minDim = Math.min(w, h);
 
-  const rimW = Math.max(1.25, Math.min(1.85, minDim * 0.022));
-  const bevelW =
-    theme === "white"
-      ? Math.min(7.5, minDim * 0.14)
-      : Math.min(11.5, minDim * 0.19);
-  const contourW = Math.max(6.0, Math.min(24.0, minDim * 0.26));
+  // Directional weighting: strongest along base (ny > 0) and curved sides
+  const topSuppression = 1.0 - 0.82 * Math.pow(Math.max(0, -ny), 1.35);
+  const baseSideWeight = topSuppression * (0.84 + 0.16 * Math.max(0, ny));
+  const glowWidth = Math.max(7.0, Math.min(26.0, minDim * 0.29));
+  const glowFalloff = Math.exp(-Math.pow(inwardDist / glowWidth, 1.28));
+  const innerGlow = baseSideWeight * glowFalloff;
 
   const catchTL = Math.max(0, nx * -0.68 + ny * -0.73);
   const catchBR = Math.max(0, nx * 0.55 + ny * 0.83);
-  const dirRim =
-    0.42 + 0.62 * Math.pow(catchTL, 1.3) + 0.38 * Math.pow(catchBR, 1.6);
+  const dirRim = 0.55 + 0.28 * catchTL + 0.22 * catchBR;
 
-  const sheen = 1.0 - 0.16 * vNorm + 0.08 * (1 - uNorm);
-  const innerContour =
-    smoothstep(rimW * 0.7, rimW * 2.2, inwardDist) *
-    Math.exp(-Math.pow(Math.max(0, inwardDist - rimW * 1.6) / contourW, 1.35));
+  // 1. Neutral interior fill + Base & Sides inner glow
+  let baseR = 250, baseG = 250, baseB = 249, baseA = 0;
+  let glowA = 0;
 
-  let fR = 250, fG = 252, fB = 255, fA = 0;
   if (theme === "white") {
-    const baseA = Math.min(0.86, 0.08 + s * 0.52);
-    const cw = 0.35 + 0.65 * innerContour;
-    fR = Math.round(247 - 24 * cw + 7 * (1 - vNorm));
-    fG = Math.round(250 - 20 * cw + 5 * (1 - vNorm));
-    fB = Math.round(254 - 12 * cw + 1 * (1 - vNorm));
-    fA = Math.min(0.88, baseA * (0.94 + 0.1 * sheen) + innerContour * 0.085);
+    baseR = 244; baseG = 244; baseB = 243;
+    baseA = Math.min(0.85, (0.07 + s * 0.50) * (0.96 + 0.06 * vNorm));
+    glowA = innerGlow * (0.28 + 0.10 * Math.min(1, s));
   } else if (theme === "grey1200") {
-    fR = 220; fG = 226; fB = 238;
-    fA = Math.min(0.62, (0.045 + s * 0.22) * sheen + innerContour * 0.03);
+    baseR = 246; baseG = 246; baseB = 247;
+    baseA = Math.min(0.56, (0.035 + s * 0.19) * (0.95 + 0.08 * vNorm));
+    glowA = innerGlow * 0.095;
   } else {
-    fR = Math.round(252 - 10 * innerContour);
-    fG = Math.round(253 - 7 * innerContour);
-    fB = 255;
-    fA = Math.min(0.68, (0.06 + s * 0.34) * sheen + innerContour * 0.055);
+    baseR = 252; baseG = 252; baseB = 250;
+    baseA = Math.min(0.68, (0.05 + s * 0.34) * (0.96 + 0.06 * vNorm));
+    glowA = innerGlow * (0.24 + 0.08 * s);
   }
 
-  const meniscus = Math.exp(
-    -Math.pow(inwardDist / Math.max(2.0, bevelW * 0.48), 1.7)
-  );
+  const fA = glowA + baseA * (1 - glowA);
+  let fR = 255, fG = 255, fB = 255;
+  if (fA > 0.0001) {
+    fR = (255 * glowA + baseR * baseA * (1 - glowA)) / fA;
+    fG = (255 * glowA + baseG * baseA * (1 - glowA)) / fA;
+    fB = (255 * glowA + baseB * baseA * (1 - glowA)) / fA;
+  }
+
+  // 2. Thin, sharp exterior hairline keyline
   let bR = 255, bG = 255, bB = 255, bA = 0;
 
   if (theme === "white") {
-    const outerKey = 1 - smoothstep(rimW * 0.55, rimW * 1.18, inwardDist);
-    const innerSpec =
-      smoothstep(rimW * 0.5, rimW * 1.25, inwardDist) *
-      (1 - smoothstep(rimW * 1.35, rimW * 3.4, inwardDist));
-    const keyA = outerKey * (0.34 + 0.1 * catchBR);
-    const specA = innerSpec * (0.48 + 0.38 * dirRim) + meniscus * 0.09;
-    const tot = Math.min(0.92, keyA + specA);
-    if (tot > 0.001) {
-      const kw = keyA / tot;
-      bR = Math.round((142 + 24 * catchTL) * kw + 255 * (1 - kw));
-      bG = Math.round((152 + 24 * catchTL) * kw + 255 * (1 - kw));
-      bB = Math.round((170 + 22 * catchTL) * kw + 255 * (1 - kw));
-      bA = tot;
+    const outerHair = 1 - smoothstep(0.30, 1.02, inwardDist);
+    const innerKiss =
+      smoothstep(0.45, 0.95, inwardDist) *
+      (1 - smoothstep(1.0, 1.85, inwardDist));
+    const oA = outerHair * 0.38;
+    const iA = innerKiss * 0.24;
+    bA = Math.min(0.62, oA + iA);
+    if (bA > 0.001) {
+      const ow = oA / bA;
+      bR = Math.round(214 * ow + 255 * (1 - ow));
+      bG = Math.round(215 * ow + 255 * (1 - ow));
+      bB = Math.round(214 * ow + 255 * (1 - ow));
     }
   } else if (theme === "grey1200") {
-    const edge = 1 - smoothstep(rimW * 0.62, rimW * 1.32, inwardDist);
-    bR = Math.min(255, Math.round(218 + 37 * catchTL));
-    bG = Math.min(255, Math.round(225 + 30 * catchTL));
-    bB = Math.min(255, Math.round(238 + 17 * catchTL));
-    bA = Math.min(0.86, edge * (0.38 + 0.36 * dirRim) + meniscus * 0.09 * dirRim);
+    const edge = 1 - smoothstep(0.42, 1.18, inwardDist);
+    bR = 248; bG = 249; bB = 250;
+    bA = Math.min(0.72, edge * (0.38 + 0.24 * dirRim));
   } else {
-    const hair = 1 - smoothstep(0.25, 0.95, inwardDist);
-    const edge = 1 - smoothstep(rimW * 0.65, rimW * 1.35, inwardDist);
-    const wA = edge * (0.46 + 0.44 * dirRim) + meniscus * 0.13 * dirRim;
-    const cA = hair * 0.1;
-    const tot = Math.min(0.94, wA + cA);
-    if (tot > 0.001) {
-      const cw = cA / tot;
-      bR = Math.round(165 * cw + 255 * (1 - cw));
-      bG = Math.round(175 * cw + 255 * (1 - cw));
-      bB = Math.round(192 * cw + 255 * (1 - cw));
-      bA = tot;
-    }
+    const edge = 1 - smoothstep(0.32, 1.06, inwardDist);
+    bR = 246; bG = 247; bB = 246;
+    bA = Math.min(0.56, edge * (0.32 + 0.18 * dirRim));
   }
 
   const outA = bA + fA * (1 - bA);
@@ -290,8 +278,7 @@ export function renderStandaloneGlassPanel({
   const r = getCornerRadius(w, h, shape, customRadius ?? cornerRadius ?? 20);
   const sh = getShadowMetrics(w, h, theme);
   const pad = includeShadow ? sh.pad : 0;
-  const cw = w + pad * 2;
-  const ch = h + pad * 2;
+  const cw = w + pad * 2, ch = h + pad * 2;
 
   const canvas = document.createElement("canvas");
   canvas.width = cw;
@@ -311,7 +298,7 @@ export function renderStandaloneGlassPanel({
     for (let x = 0; x < cw; x++) {
       const px = x + 0.5 - cx;
       const d = sdRoundBox(px, py, bx, by, r);
-      const mA = 1 - smoothstep(-0.65, 0.65, d);
+      const mA = 1 - smoothstep(-0.55, 0.55, d);
 
       let shA = 0;
       if (includeShadow && mA < 0.999) {
@@ -360,36 +347,22 @@ export function generateStandaloneGlassSvg({
   const tw = w + p * 2, th = h + p * 2;
 
   const baseA =
-    theme === "grey1200" ? 0.045 + s * 0.22
-    : theme === "white" ? Math.min(0.86, 0.08 + s * 0.52)
-    : 0.06 + s * 0.34;
-  const fCol = theme === "white" ? "#EEF2F8" : theme === "grey1200" ? "#DCE2EE" : "#FAFBFD";
-  const op1 = Math.min(0.88, baseA * 1.04).toFixed(3);
-  const op2 = Math.min(0.88, baseA * 0.92).toFixed(3);
-  const inR = Math.max(0, r - 0.75);
-  const bevR = Math.max(0, r - 2.2);
-  const cs = Math.max(6, Math.min(18, Math.min(w, h) * 0.18));
+    theme === "grey1200" ? 0.035 + s * 0.19
+    : theme === "white" ? Math.min(0.85, 0.07 + s * 0.50)
+    : 0.05 + s * 0.34;
+  const fCol = theme === "white" ? "#F4F4F3" : theme === "grey1200" ? "#F6F6F7" : "#FCFCFA";
+  const op1 = Math.min(0.86, baseA * 0.96).toFixed(3);
+  const op2 = Math.min(0.86, baseA * 1.02).toFixed(3);
 
-  const rimSection =
-    theme === "white"
-      ? `<rect x="${(cs * 0.4).toFixed(1)}" y="${(cs * 0.4).toFixed(1)}"
-        width="${(w - cs * 0.8).toFixed(1)}" height="${(h - cs * 0.8).toFixed(1)}"
-        rx="${Math.max(0, r - cs * 0.4).toFixed(1)}" fill="none"
-        stroke="#CFD8E6" stroke-opacity="0.34" stroke-width="${cs.toFixed(1)}"
-        filter="url(#meniscus-blur)" />
-      <rect x="1.7" y="1.7" width="${w - 3.4}" height="${h - 3.4}"
-        rx="${Math.max(0, r - 1.7)}" fill="none"
-        stroke="#FFFFFF" stroke-opacity="0.82" stroke-width="1.5" />
-      <rect x="0.7" y="0.7" width="${w - 1.4}" height="${h - 1.4}"
-        rx="${Math.max(0, r - 0.7)}" fill="none"
-        stroke="#8E98AA" stroke-opacity="0.40" stroke-width="1.4" />`
-      : `<rect x="2.2" y="2.2" width="${w - 4.4}" height="${h - 4.4}"
-        rx="${bevR}" fill="none" stroke="#FFFFFF" stroke-opacity="0.36"
-        stroke-width="6" filter="url(#meniscus-blur)" />
-      <rect x="0.75" y="0.75" width="${w - 1.5}" height="${h - 1.5}"
-        rx="${inR}" fill="none" stroke="#FFFFFF"
-        stroke-opacity="${theme === "grey1200" ? "0.72" : "0.84"}"
-        stroke-width="1.5" />`;
+  const glowStroke = Math.max(10, Math.min(30, Math.min(w, h) * 0.34));
+  const glowBlur = (glowStroke * 0.42).toFixed(1);
+  const glowPeak =
+    theme === "grey1200" ? "0.14" : theme === "white" ? "0.42" : "0.34";
+  const glowMid =
+    theme === "grey1200" ? "0.11" : theme === "white" ? "0.34" : "0.28";
+
+  const rimColor = theme === "white" ? "#D8D9D8" : "#F8F9F8";
+  const rimOp = theme === "white" ? "0.44" : theme === "grey1200" ? "0.56" : "0.46";
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${tw}" height="${th}"
@@ -406,12 +379,17 @@ export function generateStandaloneGlassSvg({
     <filter id="sh-blur" x="-35%" y="-35%" width="170%" height="170%">
       <feGaussianBlur stdDeviation="${sh.sigma.toFixed(2)}" />
     </filter>
-    <filter id="meniscus-blur" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="3.0" />
+    <filter id="glow-blur" x="-25%" y="-25%" width="150%" height="150%">
+      <feGaussianBlur stdDeviation="${glowBlur}" />
     </filter>
-    <linearGradient id="frost-fill" x1="0%" y1="0%" x2="35%" y2="100%">
+    <linearGradient id="frost-fill" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" stop-color="${fCol}" stop-opacity="${op1}" />
       <stop offset="100%" stop-color="${fCol}" stop-opacity="${op2}" />
+    </linearGradient>
+    <linearGradient id="base-side-glow" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.03" />
+      <stop offset="45%" stop-color="#FFFFFF" stop-opacity="${glowMid}" />
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="${glowPeak}" />
     </linearGradient>
   </defs>
   <g mask="url(#sh-mask)">
@@ -422,7 +400,12 @@ export function generateStandaloneGlassSvg({
   <g clip-path="url(#panel-clip)">
     <rect x="0" y="0" width="${w}" height="${h}" rx="${r}"
       fill="url(#frost-fill)" />
-    ${rimSection}
+    <rect x="0" y="0" width="${w}" height="${h}" rx="${r}" fill="none"
+      stroke="url(#base-side-glow)" stroke-width="${glowStroke.toFixed(1)}"
+      filter="url(#glow-blur)" />
+    <rect x="0.5" y="0.5" width="${w - 1}" height="${h - 1}"
+      rx="${Math.max(0, r - 0.5)}" fill="none"
+      stroke="${rimColor}" stroke-opacity="${rimOp}" stroke-width="1" />
   </g>
 </svg>`;
 }
@@ -503,7 +486,7 @@ export function renderRefractedGlassPatch(
   blur.width = sw; blur.height = shH;
   const bCtx = blur.getContext("2d", { willReadFrequently: true })!;
   const blurPx = 7.5 + config.frostOpacity * 10.0;
-  bCtx.filter = `blur(${blurPx.toFixed(1)}px) saturate(110%)`;
+  bCtx.filter = `blur(${blurPx.toFixed(1)}px) saturate(102%)`;
   bCtx.drawImage(sharp, 0, 0);
   bCtx.filter = "none";
 
@@ -522,9 +505,9 @@ export function renderRefractedGlassPatch(
   const invSig = 1 / (sh.sigma * Math.SQRT2);
   const mZone =
     config.theme === "white"
-      ? Math.min(9, Math.min(w, h) * 0.16)
-      : Math.min(15, Math.min(w, h) * 0.24);
-  const maxDisp = config.theme === "white" ? 4.5 : 10.0;
+      ? Math.min(8, Math.min(w, h) * 0.14)
+      : Math.min(13, Math.min(w, h) * 0.20);
+  const maxDisp = config.theme === "white" ? 3.5 : 8.0;
 
   const sample = (buf: Uint8ClampedArray, fx: number, fy: number) => {
     const cx0 = Math.max(0, Math.min(sw - 1, fx));
@@ -550,7 +533,7 @@ export function renderRefractedGlassPatch(
     for (let x = 0; x < cw; x++) {
       const px = x + 0.5 - cx;
       const d = sdRoundBox(px, py, bx, by, r);
-      const mA = 1 - smoothstep(-0.65, 0.65, d);
+      const mA = 1 - smoothstep(-0.55, 0.55, d);
 
       let shA = 0;
       if (mA < 0.999) {
@@ -572,12 +555,9 @@ export function renderRefractedGlassPatch(
       const lens = Math.pow(Math.max(0, 1 - inDist / mZone), 2.2);
       const bxS = lx + pad - nx * lens * maxDisp;
       const byS = ly + pad - ny * lens * maxDisp;
-      const sp = config.theme === "white" ? 0.45 : 1.0;
-      const ec = config.theme === "white" ? lens * 0.2 : lens * 0.38;
+      const ec = config.theme === "white" ? lens * 0.14 : lens * 0.28;
 
-      const [brR] = sample(bPx, bxS - nx * lens * sp, byS - ny * lens * sp);
-      const [, brG] = sample(bPx, bxS, byS);
-      const [, , brB] = sample(bPx, bxS + nx * lens * sp, byS + ny * lens * sp);
+      const [brR, brG, brB] = sample(bPx, bxS, byS);
       const [sR0, sG0, sB0] = sample(sPx, bxS, byS);
 
       const rR = brR * (1 - ec) + sR0 * ec;
