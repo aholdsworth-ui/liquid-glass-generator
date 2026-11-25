@@ -220,26 +220,12 @@ function strokeCrispGlassKeyline(
     ctx.lineWidth = sw;
     ctx.stroke();
   } else if (theme === "white") {
-    const sw = Math.max(1.15, Math.min(1.4, minDim * 0.016));
-    const half = sw * 0.5;
-    const innerIn = sw + 0.5;
-    if (w > innerIn * 2 + 2 && h > innerIn * 2 + 2) {
-      traceRoundRect(
-        ctx,
-        x + innerIn,
-        y + innerIn,
-        w - innerIn * 2,
-        h - innerIn * 2,
-        r - innerIn
-      );
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.55)";
-      ctx.lineWidth = 1.0;
-      ctx.stroke();
-    }
+    const sw = 1.0;
+    const half = 0.5;
     const grad = ctx.createLinearGradient(x, y, x + w, y + h);
-    grad.addColorStop(0, "rgba(194, 196, 195, 0.58)");
-    grad.addColorStop(0.5, "rgba(202, 204, 203, 0.50)");
-    grad.addColorStop(1, "rgba(186, 188, 187, 0.64)");
+    grad.addColorStop(0, "rgba(224, 226, 228, 0.36)");
+    grad.addColorStop(0.5, "rgba(234, 236, 238, 0.30)");
+    grad.addColorStop(1, "rgba(218, 220, 222, 0.40)");
     traceRoundRect(ctx, x + half, y + half, w - sw, h - sw, r - half);
     ctx.strokeStyle = grad;
     ctx.lineWidth = sw;
@@ -268,7 +254,7 @@ function evaluateGlassSurface(
   theme: GlassTheme,
   frostOpacity: number
 ): [number, number, number, number] {
-  const maxOp = theme === "white" ? 1.35 : 1.0;
+  const maxOp = 1.0;
   const s = Math.max(0, Math.min(maxOp, frostOpacity));
   const minDim = Math.min(w, h);
 
@@ -389,7 +375,7 @@ export function generateStandaloneGlassSvg({
   const w = Math.max(16, Math.round(width));
   const h = Math.max(16, Math.round(height));
   const r = getCornerRadius(w, h, shape, 20);
-  const s = Math.max(0, Math.min(theme === "white" ? 1.35 : 1.0, frostOpacity));
+  const s = Math.max(0, Math.min(1.0, frostOpacity));
   const sEff = theme === "grey1200" ? s * 0.5 : s;
   const sh = getShadowMetrics(w, h, theme);
   const p = sh.pad;
@@ -416,7 +402,7 @@ export function generateStandaloneGlassSvg({
   const sw =
     theme === "grey1200"
       ? Math.max(1.25, Math.min(1.6, Math.min(w, h) * 0.018))
-      : Math.max(1.15, Math.min(1.4, Math.min(w, h) * 0.016));
+      : theme === "white" ? 1.0 : Math.max(1.15, Math.min(1.4, Math.min(w, h) * 0.016));
   const half = sw * 0.5;
   const rimStops =
     theme === "grey1200"
@@ -424,9 +410,9 @@ export function generateStandaloneGlassSvg({
       <stop offset="45%" stop-color="#F2F5FA" stop-opacity="0.58" />
       <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.72" />`
       : theme === "white"
-      ? `<stop offset="0%" stop-color="#C2C4C3" stop-opacity="0.58" />
-      <stop offset="50%" stop-color="#CACCCB" stop-opacity="0.50" />
-      <stop offset="100%" stop-color="#BABCB9" stop-opacity="0.64" />`
+      ? `<stop offset="0%" stop-color="#E0E2E4" stop-opacity="0.36" />
+      <stop offset="50%" stop-color="#EAECEE" stop-opacity="0.30" />
+      <stop offset="100%" stop-color="#DADCDF" stop-opacity="0.40" />`
       : `<stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.58" />
       <stop offset="50%" stop-color="#F6F7F6" stop-opacity="0.42" />
       <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.54" />`;

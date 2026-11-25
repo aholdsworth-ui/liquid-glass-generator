@@ -874,7 +874,7 @@ export default function Page() {
                   <input
                     type="range"
                     min={0}
-                    max={theme === "white" ? 130 : 100}
+                    max={theme === "white" ? 100 : 100}
                     value={opacitySlider}
                     onChange={(e) => setOpacitySlider(Number(e.target.value))}
                     className="w-full accent-neutral-900 cursor-pointer h-1.5 bg-neutral-300 rounded-lg"
