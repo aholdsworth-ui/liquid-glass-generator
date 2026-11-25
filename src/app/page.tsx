@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { PAGE_ASSETS, BG_ASSETS } from "@/lib/assetPaths";
+import { PAGE_ASSETS, BG_ASSETS, BUTTON_ZONES } from "@/lib/assetPaths";
 import {
   PanelShape,
   BackgroundTheme,
@@ -11,8 +11,12 @@ import {
   renderStandaloneGlassPanel,
   renderRefractedGlassPatch,
   generateStandaloneGlassSvg,
-  generateCompositedGlassSvg,
 } from "@/lib/liquidGlassEngine";
+import {
+  CompositedPanelSpec,
+  renderMultiPanelArtworkCanvas,
+  generateMultiPanelArtworkSvg,
+} from "@/lib/multiPanelExport";
 import { StickerCard, drawCoverImage, buildFallbackBackground } from "@/components/StickerCard";
 
 type ScreenId =
@@ -28,6 +32,15 @@ type ScreenId =
 
 type ResizeMode = "none" | "1:1" | "4:5" | "9:16" | "16:9" | "custom";
 
+interface Opt2PanelItem {
+  id: number;
+  shape: PanelShape;
+  theme: BackgroundTheme;
+  widthInput: string;
+  heightInput: string;
+  pos: { x: number; y: number };
+}
+
 export default function Page() {
   const [screen, setScreen] = useState<ScreenId>("home");
   const [theme, setTheme] = useState<BackgroundTheme>("imagery");
@@ -37,6 +50,12 @@ export default function Page() {
   const [widthInput, setWidthInput] = useState("420");
   const [heightInput, setHeightInput] = useState("180");
   const [opacitySlider, setOpacitySlider] = useState(50);
+  const [panelPos, setPanelPos] = useState({ x: 330, y: 450 });
+
+  const [opt2Panels, setOpt2Panels] = useState<Opt2PanelItem[]>([
+    { id: 1, shape: "text-panel", theme: "imagery", widthInput: "420", heightInput: "180", pos: { x: 330, y: 450 } },
+  ]);
+  const nextPanelIdRef = useRef(2);
 
   const [activeStickerFilter, setActiveStickerFilter] = useState("all");
   const [openStickerMenuKey, setOpenStickerMenuKey] = useState<string | null>(null);
@@ -47,7 +66,6 @@ export default function Page() {
   const [bgZoom, setBgZoom] = useState(100);
   const [bgPan, setBgPan] = useState({ x: 0, y: 0 });
 
-  const [panelPos, setPanelPos] = useState({ x: 330, y: 450 });
   const [uploadedBgImg, setUploadedBgImg] = useState<HTMLImageElement | null>(null);
   const [uploadedBgDims, setUploadedBgDims] = useState({ width: 1920, height: 1080 });
   const [toastMsg, setToastMsg] = useState("");
@@ -57,6 +75,7 @@ export default function Page() {
   const stageBgCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const dragModeRef = useRef<"none" | "panel" | "pan-bg" | "scale-bg">("none");
+  const dragPanelIdxRef = useRef(0);
   const dragStartRef = useRef({ cx: 0, cy: 0, panelX: 0, panelY: 0, panX: 0, panY: 0, startDist: 1, startZoom: 100, icx: 0, icy: 0 });
   const layoutRef = useRef({ padX: 0, padY: 0, targetW: 1080, targetH: 1080, drawX: 0, drawY: 0, drawW: 1080, drawH: 1080 });
 
@@ -72,7 +91,17 @@ export default function Page() {
 
   const parsedW = Math.max(0, parseInt(widthInput || "0", 10) || 0);
   const parsedH = shape === "circle" ? parsedW : Math.max(0, parseInt(heightInput || "0", 10) || 0);
-  const hasValidSize = parsedW >= 24 && parsedH >= 24;
+
+  const opt2Specs: CompositedPanelSpec[] = opt2Panels.map((p) => {
+    const pw = Math.max(0, parseInt(p.widthInput || "0", 10) || 0);
+    const ph = p.shape === "circle" ? pw : Math.max(0, parseInt(p.heightInput || "0", 10) || 0);
+    return { shape: p.shape, theme: p.theme, width: pw, height: ph, x: p.pos.x, y: p.pos.y };
+  });
+
+  const hasValidSize =
+    screen === "opt2-workspace"
+      ? opt2Specs.some((s) => s.width >= 24 && s.height >= 24)
+      : parsedW >= 24 && parsedH >= 24;
 
   useEffect(() => {
     const fn = () => setOpenStickerMenuKey(null);
@@ -128,11 +157,43 @@ export default function Page() {
         : nextMode === "custom"
         ? { width: Math.max(64, parseInt(customCanvasWInput || "0", 10) || 1080), height: Math.max(64, parseInt(customCanvasHInput || "0", 10) || 1080) }
         : FORMAT_DIMENSIONS[nextMode];
-    const pw = Math.min(parsedW || 360, Math.round(nd.width * 0.8));
-    const ph = Math.min(parsedH || 140, Math.round(nd.height * 0.8));
-    if (parsedW > nd.width * 0.9) setWidthInput(String(pw));
-    if (parsedH > nd.height * 0.9) setHeightInput(String(ph));
-    setPanelPos({ x: Math.max(12, Math.round((nd.width - pw) / 2)), y: Math.max(12, Math.round((nd.height - ph) / 2)) });
+    setOpt2Panels((prev) =>
+      prev.map((p, i) => {
+        const rawW = parseInt(p.widthInput || "0", 10) || 360;
+        const rawH = p.shape === "circle" ? rawW : parseInt(p.heightInput || "0", 10) || 140;
+        const pw = Math.min(rawW, Math.round(nd.width * 0.85));
+        const ph = Math.min(rawH, Math.round(nd.height * 0.85));
+        return {
+          ...p,
+          widthInput: rawW > nd.width * 0.9 ? String(pw) : p.widthInput,
+          heightInput: rawH > nd.height * 0.9 ? String(ph) : p.heightInput,
+          pos: {
+            x: Math.max(12, Math.min(nd.width - pw, Math.round((nd.width - pw) / 2 + i * 32))),
+            y: Math.max(12, Math.min(nd.height - ph, Math.round((nd.height - ph) / 2 + i * 32))),
+          },
+        };
+      })
+    );
+  };
+
+  const updateOpt2Panel = (idx: number, patch: Partial<Opt2PanelItem>) => {
+    setOpt2Panels((prev) => prev.map((item, i) => (i === idx ? { ...item, ...patch } : item)));
+  };
+
+  const toggleExtraPanelAfter = (idx: number) => {
+    setOpt2Panels((prev) => {
+      if (idx + 1 < prev.length) {
+        return prev.filter((_, i) => i !== idx + 1);
+      }
+      if (prev.length >= 6) return prev;
+      const refP = prev[prev.length - 1];
+      const rw = Math.max(80, parseInt(refP.widthInput || "0", 10) || 360);
+      const rh = refP.shape === "circle" ? rw : Math.max(60, parseInt(refP.heightInput || "0", 10) || 160);
+      const nx = Math.max(16, Math.min(opt2TargetDims.width - rw - 16, refP.pos.x + 44));
+      const ny = Math.max(16, Math.min(opt2TargetDims.height - rh - 16, refP.pos.y + 44));
+      const nid = nextPanelIdRef.current++;
+      return [...prev, { id: nid, shape: "text-panel", theme: prev[0].theme, widthInput: String(rw), heightInput: String(rh), pos: { x: nx, y: ny } }];
+    });
   };
 
   const buildCroppedOpt2Background = useCallback((): HTMLCanvasElement | null => {
@@ -146,11 +207,11 @@ export default function Page() {
     c.width = tw;
     c.height = th;
     const ctx = c.getContext("2d")!;
-    ctx.fillStyle = theme === "grey1200" ? "#121317" : "#FFFFFF";
+    ctx.fillStyle = opt2Panels[0]?.theme === "grey1200" ? "#121317" : "#FFFFFF";
     ctx.fillRect(0, 0, tw, th);
     ctx.drawImage(uploadedBgImg, tw / 2 + bgPan.x - dw / 2, th / 2 + bgPan.y - dh / 2, dw, dh);
     return c;
-  }, [uploadedBgImg, uploadedBgDims, opt2TargetDims, bgZoom, bgPan, theme]);
+  }, [uploadedBgImg, uploadedBgDims, opt2TargetDims, bgZoom, bgPan, opt2Panels]);
 
   const drawWorkspace = useCallback(() => {
     const canvas = previewCanvasRef.current;
@@ -167,7 +228,7 @@ export default function Page() {
       const ctx = canvas.getContext("2d")!;
       ctx.clearRect(0, 0, tw, th);
       ctx.drawImage(bgSource, 0, 0, tw, th);
-      if (hasValidSize) {
+      if (parsedW >= 24 && parsedH >= 24) {
         const patch = renderRefractedGlassPatch(bgSource, tw, th, panelPos.x, panelPos.y, {
           width: parsedW,
           height: parsedH,
@@ -205,7 +266,6 @@ export default function Page() {
       ctx.fillRect(0, 0, cw, ch);
       ctx.drawImage(uploadedBgImg, padX + dx, padY + dy, dw, dh);
 
-      // Grey out overhanging image outside the chosen format frame
       ctx.fillStyle = "rgba(241, 243, 244, 0.76)";
       ctx.fillRect(0, 0, cw, padY);
       ctx.fillRect(0, padY + th, cw, padY);
@@ -214,22 +274,8 @@ export default function Page() {
 
       const croppedBg = buildCroppedOpt2Background();
       if (croppedBg) {
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(padX, padY, tw, th);
-        ctx.clip();
-        ctx.drawImage(croppedBg, padX, padY, tw, th);
-        if (hasValidSize) {
-          const patch = renderRefractedGlassPatch(croppedBg, tw, th, panelPos.x, panelPos.y, {
-            width: parsedW,
-            height: parsedH,
-            shape,
-            theme,
-            frostOpacity: opacitySlider / 100,
-          });
-          ctx.drawImage(patch, Math.round(padX + panelPos.x - (patch.width - parsedW) / 2), Math.round(padY + panelPos.y - (patch.height - parsedH) / 2));
-        }
-        ctx.restore();
+        const comp = renderMultiPanelArtworkCanvas(croppedBg, tw, th, opt2Specs, opacitySlider / 100);
+        ctx.drawImage(comp, padX, padY, tw, th);
       }
 
       const u = Math.max(2, Math.round(Math.max(cw, ch) * 0.0022));
@@ -260,7 +306,7 @@ export default function Page() {
       });
       ctx.restore();
     }
-  }, [screen, format, uploadedBgImg, uploadedBgDims, opt2TargetDims, resizeMode, bgZoom, bgPan, buildCroppedOpt2Background, hasValidSize, parsedW, parsedH, panelPos, shape, theme, opacitySlider]);
+  }, [screen, format, uploadedBgImg, uploadedBgDims, opt2TargetDims, resizeMode, bgZoom, bgPan, buildCroppedOpt2Background, opt2Specs, parsedW, parsedH, panelPos, shape, theme, opacitySlider]);
 
   useEffect(() => {
     if (screen === "opt1-workspace" || screen === "opt2-workspace") drawWorkspace();
@@ -278,14 +324,18 @@ export default function Page() {
     const cx = rawX - padX;
     const cy = rawY - padY;
 
-    if (hasValidSize && cx >= panelPos.x && cx <= panelPos.x + parsedW && cy >= panelPos.y && cy <= panelPos.y + parsedH) {
-      dragModeRef.current = "panel";
-      dragStartRef.current = { ...dragStartRef.current, cx, cy, panelX: panelPos.x, panelY: panelPos.y };
-      e.currentTarget.setPointerCapture(e.pointerId);
-      return;
-    }
-
     if (screen === "opt2-workspace") {
+      for (let i = opt2Specs.length - 1; i >= 0; i--) {
+        const sp = opt2Specs[i];
+        if (sp.width >= 24 && sp.height >= 24 && cx >= sp.x && cx <= sp.x + sp.width && cy >= sp.y && cy <= sp.y + sp.height) {
+          dragModeRef.current = "panel";
+          dragPanelIdxRef.current = i;
+          dragStartRef.current = { ...dragStartRef.current, cx, cy, panelX: sp.x, panelY: sp.y };
+          e.currentTarget.setPointerCapture(e.pointerId);
+          return;
+        }
+      }
+
       const hr = Math.max(7, Math.round(Math.max(canvas.width, canvas.height) * 0.009));
       const hit = [
         [drawX, drawY],
@@ -307,12 +357,17 @@ export default function Page() {
       return;
     }
 
-    if (hasValidSize) {
-      const nx = Math.max(0, Math.min(targetW - parsedW, cx - parsedW / 2));
-      const ny = Math.max(0, Math.min(targetH - parsedH, cy - parsedH / 2));
-      setPanelPos({ x: nx, y: ny });
-      dragModeRef.current = "panel";
-      dragStartRef.current = { ...dragStartRef.current, cx, cy, panelX: nx, panelY: ny };
+    if (parsedW >= 24 && parsedH >= 24) {
+      if (cx >= panelPos.x && cx <= panelPos.x + parsedW && cy >= panelPos.y && cy <= panelPos.y + parsedH) {
+        dragModeRef.current = "panel";
+        dragStartRef.current = { ...dragStartRef.current, cx, cy, panelX: panelPos.x, panelY: panelPos.y };
+      } else {
+        const nx = Math.max(0, Math.min(targetW - parsedW, cx - parsedW / 2));
+        const ny = Math.max(0, Math.min(targetH - parsedH, cy - parsedH / 2));
+        setPanelPos({ x: nx, y: ny });
+        dragModeRef.current = "panel";
+        dragStartRef.current = { ...dragStartRef.current, cx, cy, panelX: nx, panelY: ny };
+      }
       e.currentTarget.setPointerCapture(e.pointerId);
     }
   };
@@ -326,10 +381,19 @@ export default function Page() {
     const cy = (e.clientY - rect.top) * (canvas.height / rect.height) - padY;
 
     if (dragModeRef.current === "panel") {
-      setPanelPos({
-        x: Math.max(0, Math.min(targetW - parsedW, Math.round(dragStartRef.current.panelX + cx - dragStartRef.current.cx))),
-        y: Math.max(0, Math.min(targetH - parsedH, Math.round(dragStartRef.current.panelY + cy - dragStartRef.current.cy))),
-      });
+      if (screen === "opt2-workspace") {
+        const idx = dragPanelIdxRef.current;
+        const sp = opt2Specs[idx];
+        if (!sp) return;
+        const nx = Math.max(0, Math.min(targetW - sp.width, Math.round(dragStartRef.current.panelX + cx - dragStartRef.current.cx)));
+        const ny = Math.max(0, Math.min(targetH - sp.height, Math.round(dragStartRef.current.panelY + cy - dragStartRef.current.cy)));
+        updateOpt2Panel(idx, { pos: { x: nx, y: ny } });
+      } else {
+        setPanelPos({
+          x: Math.max(0, Math.min(targetW - parsedW, Math.round(dragStartRef.current.panelX + cx - dragStartRef.current.cx))),
+          y: Math.max(0, Math.min(targetH - parsedH, Math.round(dragStartRef.current.panelY + cy - dragStartRef.current.cy))),
+        });
+      }
     } else if (dragModeRef.current === "pan-bg") {
       setBgPan({ x: Math.round(dragStartRef.current.panX + cx - dragStartRef.current.cx), y: Math.round(dragStartRef.current.panY + cy - dragStartRef.current.cy) });
     } else if (dragModeRef.current === "scale-bg") {
@@ -381,14 +445,7 @@ export default function Page() {
       if (!croppedBg) return;
       const tw = opt2TargetDims.width;
       const th = opt2TargetDims.height;
-      const out = document.createElement("canvas");
-      out.width = tw;
-      out.height = th;
-      const ctx = out.getContext("2d")!;
-      ctx.drawImage(croppedBg, 0, 0, tw, th);
-      const patch = renderRefractedGlassPatch(croppedBg, tw, th, panelPos.x, panelPos.y, { width: parsedW, height: parsedH, shape, theme, frostOpacity: opacitySlider / 100 });
-      ctx.drawImage(patch, Math.round(panelPos.x - (patch.width - parsedW) / 2), Math.round(panelPos.y - (patch.height - parsedH) / 2));
-      downloadCanvas(out, `glass-artwork-${tw}x${th}.png`);
+      downloadCanvas(renderMultiPanelArtworkCanvas(croppedBg, tw, th, opt2Specs, opacitySlider / 100), `glass-artwork-${tw}x${th}.png`);
     }
   };
 
@@ -399,10 +456,9 @@ export default function Page() {
     } else if (screen === "opt2-workspace") {
       const croppedBg = buildCroppedOpt2Background();
       if (!croppedBg) return;
-      downloadSvg(
-        generateCompositedGlassSvg(croppedBg, opt2TargetDims.width, opt2TargetDims.height, panelPos.x, panelPos.y, { width: parsedW, height: parsedH, shape, theme, frostOpacity: opacitySlider / 100 }),
-        `glass-artwork-${opt2TargetDims.width}x${opt2TargetDims.height}.svg`
-      );
+      const tw = opt2TargetDims.width;
+      const th = opt2TargetDims.height;
+      downloadSvg(generateMultiPanelArtworkSvg(croppedBg, tw, th, opt2Specs, opacitySlider / 100), `glass-artwork-${tw}x${th}.svg`);
     }
   };
 
@@ -422,7 +478,7 @@ export default function Page() {
         lum += 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
         if (px[i] > 240 && px[i + 1] > 240 && px[i + 2] > 240) whites++;
       }
-      setTheme(whites > 288 ? "white" : lum / 576 < 45 ? "grey1200" : "imagery");
+      const detectedTheme: BackgroundTheme = whites > 288 ? "white" : lum / 576 < 45 ? "grey1200" : "imagery";
       setOpacitySlider(50);
       setResizeMode("none");
       setBgZoom(100);
@@ -433,9 +489,17 @@ export default function Page() {
       setUploadedBgImg(img);
       const iw = Math.max(120, Math.min(480, Math.round(img.naturalWidth * 0.35)));
       const ih = Math.max(64, Math.min(190, Math.round(img.naturalHeight * 0.2)));
-      setWidthInput(String(iw));
-      setHeightInput(String(ih));
-      setPanelPos({ x: Math.round((img.naturalWidth - iw) / 2), y: Math.round((img.naturalHeight - ih) / 2) });
+      setOpt2Panels([
+        {
+          id: 1,
+          shape: "text-panel",
+          theme: detectedTheme,
+          widthInput: String(iw),
+          heightInput: String(ih),
+          pos: { x: Math.round((img.naturalWidth - iw) / 2), y: Math.round((img.naturalHeight - ih) / 2) },
+        },
+      ]);
+      nextPanelIdRef.current = 2;
       setScreen("opt2-workspace");
     };
     img.src = URL.createObjectURL(file);
@@ -453,6 +517,11 @@ export default function Page() {
     else if (screen === "opt1-workspace") setScreen(theme === "imagery" ? "opt1-imagery-select" : "opt1-bg-select");
     else if (screen === "opt2-workspace") setScreen("opt2-upload");
     else setScreen("home");
+  };
+
+  const zoneStyle = (key: string, idx: number): React.CSSProperties => {
+    const z = BUTTON_ZONES[key]?.[idx] || [25, 70, 22, 14];
+    return { left: `${z[0]}%`, top: `${z[1]}%`, width: `${z[2]}%`, height: `${z[3]}%` };
   };
 
   return (
@@ -487,16 +556,16 @@ export default function Page() {
           {screen === "home" && (
             <div className="relative w-full h-full">
               <img src={PAGE_ASSETS.home} alt="Cover" className="w-full h-full object-cover pointer-events-none" />
-              <button type="button" aria-label="Export panels for print and design" onClick={() => setScreen("opt2-upload")} className="absolute left-[16.5%] top-[63%] w-[22.5%] h-[23%] rounded-full hover:bg-black/[0.03] cursor-pointer" />
-              <button type="button" aria-label="Export panels for Slides use" onClick={() => setScreen("opt1-pre-cover")} className="absolute left-[39.5%] top-[63%] w-[22.5%] h-[23%] rounded-full hover:bg-black/[0.03] cursor-pointer" />
+              <button type="button" aria-label="Export panels for print and design" onClick={() => setScreen("opt2-upload")} style={zoneStyle("home", 0)} className="absolute rounded-full bg-transparent cursor-pointer" />
+              <button type="button" aria-label="Export panels for slides only" onClick={() => setScreen("opt1-pre-cover")} style={zoneStyle("home", 1)} className="absolute rounded-full bg-transparent cursor-pointer" />
             </div>
           )}
 
           {screen === "opt1-pre-cover" && (
             <div className="relative w-full h-full">
               <img src={PAGE_ASSETS.slidesPreCover} alt="Export panels for slides" className="w-full h-full object-cover pointer-events-none" />
-              <button type="button" aria-label="Sticker sheets" onClick={() => setScreen("opt1-sticker-cover")} className="absolute left-[29%] top-[64%] w-[20.5%] h-[22%] rounded-full hover:bg-black/[0.03] cursor-pointer" />
-              <button type="button" aria-label="Create panels for slides" onClick={() => setScreen("opt1-bg-select")} className="absolute left-[50.5%] top-[64%] w-[20.5%] h-[22%] rounded-full hover:bg-black/[0.03] cursor-pointer" />
+              <button type="button" aria-label="Sticker sheets" onClick={() => setScreen("opt1-sticker-cover")} style={zoneStyle("slidesPreCover", 0)} className="absolute rounded-full bg-transparent cursor-pointer" />
+              <button type="button" aria-label="Create panels for slides" onClick={() => setScreen("opt1-bg-select")} style={zoneStyle("slidesPreCover", 1)} className="absolute rounded-full bg-transparent cursor-pointer" />
             </div>
           )}
 
@@ -504,7 +573,7 @@ export default function Page() {
             <div className="relative w-full h-full">
               <img src={PAGE_ASSETS.stickerCover} alt="Sticker sheets" className="w-full h-full object-cover pointer-events-none" />
               {(["imagery", "grey1200", "white"] as BackgroundTheme[]).map((t, i) => (
-                <button key={t} type="button" onClick={() => { setTheme(t); setActiveStickerFilter("all"); setOpenStickerMenuKey(null); setScreen("opt3-sheet"); }} style={{ left: `${22 + i * 19}%` }} className="absolute top-[60%] w-[18%] h-[21%] rounded-full hover:bg-black/[0.03] cursor-pointer" />
+                <button key={t} type="button" onClick={() => { setTheme(t); setActiveStickerFilter("all"); setOpenStickerMenuKey(null); setScreen("opt3-sheet"); }} style={zoneStyle("stickerCover", i)} className="absolute rounded-full bg-transparent cursor-pointer" />
               ))}
             </div>
           )}
@@ -512,9 +581,9 @@ export default function Page() {
           {screen === "opt1-bg-select" && (
             <div className="relative w-full h-full">
               <img src={PAGE_ASSETS.slidesBgSelect} alt="Create panels for slides" className="w-full h-full object-cover pointer-events-none" />
-              <button type="button" onClick={() => { setTheme("imagery"); setOpacitySlider(50); setScreen("opt1-imagery-select"); }} className="absolute left-[22%] top-[63%] w-[18%] h-[21%] rounded-full hover:bg-black/[0.03] cursor-pointer" />
-              <button type="button" onClick={() => { setTheme("grey1200"); setOpacitySlider(50); setFormat("1:1"); setScreen("opt1-workspace"); }} className="absolute left-[41%] top-[63%] w-[18%] h-[21%] rounded-full hover:bg-black/[0.03] cursor-pointer" />
-              <button type="button" onClick={() => { setTheme("white"); setOpacitySlider(50); setFormat("1:1"); setScreen("opt1-workspace"); }} className="absolute left-[60%] top-[63%] w-[18%] h-[21%] rounded-full hover:bg-black/[0.03] cursor-pointer" />
+              <button type="button" onClick={() => { setTheme("imagery"); setOpacitySlider(50); setScreen("opt1-imagery-select"); }} style={zoneStyle("slidesBgSelect", 0)} className="absolute rounded-full bg-transparent cursor-pointer" />
+              <button type="button" onClick={() => { setTheme("grey1200"); setOpacitySlider(50); setFormat("1:1"); setScreen("opt1-workspace"); }} style={zoneStyle("slidesBgSelect", 1)} className="absolute rounded-full bg-transparent cursor-pointer" />
+              <button type="button" onClick={() => { setTheme("white"); setOpacitySlider(50); setFormat("1:1"); setScreen("opt1-workspace"); }} style={zoneStyle("slidesBgSelect", 2)} className="absolute rounded-full bg-transparent cursor-pointer" />
             </div>
           )}
 
@@ -522,7 +591,7 @@ export default function Page() {
             <div className="relative w-full h-full">
               <img src={PAGE_ASSETS.fullBleedPicker} alt="Select example background" className="w-full h-full object-cover pointer-events-none" />
               {[0, 1, 2, 3].map((idx) => (
-                <button key={idx} type="button" onClick={() => { setImageryIndex(idx); setTheme("imagery"); setOpacitySlider(50); setFormat("1:1"); setScreen("opt1-workspace"); }} style={{ left: `${4.5 + idx * 23}%` }} className="absolute top-[42%] w-[22%] h-[44%] rounded-lg hover:ring-4 hover:ring-blue-500/50 cursor-pointer" />
+                <button key={idx} type="button" onClick={() => { setImageryIndex(idx); setTheme("imagery"); setOpacitySlider(50); setFormat("1:1"); setScreen("opt1-workspace"); }} style={zoneStyle("fullBleedPicker", idx)} className="absolute bg-transparent cursor-pointer" />
               ))}
             </div>
           )}
@@ -530,7 +599,7 @@ export default function Page() {
           {screen === "opt2-upload" && (
             <div className="relative w-full h-full">
               <img src={PAGE_ASSETS.bgUploadCover} alt="Export a panel on your background" className="w-full h-full object-cover pointer-events-none" />
-              <button type="button" onClick={() => fileInputRef.current?.click()} className="absolute left-[37%] top-[64%] w-[26%] h-[22%] rounded-full hover:bg-black/[0.03] cursor-pointer" />
+              <button type="button" aria-label="Upload now" onClick={() => fileInputRef.current?.click()} style={zoneStyle("bgUploadCover", 0)} className="absolute rounded-full bg-transparent cursor-pointer" />
             </div>
           )}
 
@@ -544,119 +613,186 @@ export default function Page() {
                   onPointerDown={handlePointerDown}
                   onPointerMove={handlePointerMove}
                   onPointerUp={handlePointerUp}
-                  onWheel={(e) => {
-                    if (screen !== "opt2-workspace") return;
-                    e.preventDefault();
-                    setBgZoom((p) => Math.max(20, Math.min(300, p + (e.deltaY < 0 ? 5 : -5))));
-                  }}
                   className="max-w-full max-h-full object-contain shadow-sm cursor-grab active:cursor-grabbing touch-none"
                 />
               </div>
 
-              <div className="absolute z-10 left-[50%] right-[4.5%] top-[58.5%] bottom-[2.5%] flex flex-col justify-start gap-1 lg:gap-1.5 overflow-y-auto pr-1">
-                {screen === "opt2-workspace" && (
-                  <div className="flex flex-wrap items-end gap-2.5">
-                    <div className="flex flex-col gap-0.5">
-                      <label className="text-[10px] font-semibold text-neutral-800 leading-tight">Image resize</label>
-                      <select value={resizeMode} onChange={(e) => applyResizeMode(e.target.value as ResizeMode)} className="h-6 lg:h-7 px-2 text-[11px] font-medium bg-white border border-neutral-800 rounded-md">
-                        <option value="none">No resize</option>
-                        <option value="1:1">1:1 (1080x1080)</option>
-                        <option value="4:5">4:5 (1080x1350)</option>
-                        <option value="9:16">9:16 (1080x1920)</option>
-                        <option value="16:9">16:9 (1920x1080)</option>
-                        <option value="custom">Custom</option>
-                      </select>
+              <div className={`absolute z-10 left-[50%] right-[4.5%] ${screen === "opt1-workspace" ? "top-[53.5%]" : "top-[54.5%]"} bottom-[3%] flex flex-col justify-start gap-1.5 overflow-y-auto pr-2`}>
+                {screen === "opt1-workspace" ? (
+                  <>
+                    <div className="flex flex-wrap items-end gap-2.5">
+                      <div className="flex flex-col gap-0.5">
+                        <label className="text-[10px] font-semibold text-neutral-800 leading-tight">Format</label>
+                        <select value={format} onChange={(e) => setFormat(e.target.value as FormatRatio)} className="h-6 lg:h-7 px-2 text-[11px] font-medium bg-white border border-neutral-800 rounded-md">
+                          <option value="1:1">1:1</option>
+                          <option value="4:5">4:5</option>
+                          <option value="9:16">9:16</option>
+                          <option value="16:9">16:9</option>
+                        </select>
+                      </div>
+
+                      <div className="flex flex-col gap-0.5">
+                        <label className="text-[10px] font-semibold text-neutral-800 leading-tight">Shape</label>
+                        <select
+                          value={shape}
+                          onChange={(e) => {
+                            const next = e.target.value as PanelShape;
+                            setShape(next);
+                            if (next === "circle") setHeightInput(widthInput);
+                            else if (next === "cta-pill" && parseInt(heightInput, 10) > 140) setHeightInput("84");
+                          }}
+                          className="h-6 lg:h-7 px-2 text-[11px] font-medium bg-white border border-neutral-800 rounded-md"
+                        >
+                          <option value="text-panel">Text panel</option>
+                          <option value="circle">Circle</option>
+                          <option value="cta-pill">CTA pill</option>
+                        </select>
+                      </div>
                     </div>
 
-                    {resizeMode === "custom" && (
-                      <div className="flex items-center gap-1.5 text-[10.5px] font-medium">
-                        <input type="number" min={64} max={6000} value={customCanvasWInput} onChange={(e) => setCustomCanvasWInput(e.target.value)} className="w-[62px] h-6 lg:h-7 px-1.5 text-[11px] bg-white border border-neutral-800 rounded-md" />
-                        <span>px wide x</span>
-                        <input type="number" min={64} max={6000} value={customCanvasHInput} onChange={(e) => setCustomCanvasHInput(e.target.value)} className="w-[62px] h-6 lg:h-7 px-1.5 text-[11px] bg-white border border-neutral-800 rounded-md" />
-                        <span>px high</span>
-                      </div>
-                    )}
-
-                    <div className="flex flex-col gap-0.5 min-w-[125px]">
-                      <div className="flex items-center justify-between text-[10px]">
-                        <span className="font-semibold text-neutral-800 leading-tight">Image scale ({bgZoom}%)</span>
-                        {(bgZoom !== 100 || bgPan.x !== 0 || bgPan.y !== 0) && (
-                          <button type="button" onClick={() => { setBgZoom(100); setBgPan({ x: 0, y: 0 }); }} className="text-[10px] underline text-neutral-600 hover:text-black cursor-pointer">
-                            Reset
-                          </button>
+                    <div className="flex flex-col gap-0.5">
+                      <label className="text-[10px] font-semibold text-neutral-800 leading-tight">Size</label>
+                      <div className="flex items-center gap-2 text-[11px] font-medium">
+                        <input type="number" min={24} max={4000} value={widthInput} onChange={(e) => { setWidthInput(e.target.value); if (shape === "circle") setHeightInput(e.target.value); }} className="w-[68px] h-6 lg:h-7 px-2 text-[11px] bg-white border border-neutral-800 rounded-md" />
+                        <span>{shape === "circle" ? "px diameter" : "px wide x"}</span>
+                        {shape !== "circle" && (
+                          <>
+                            <input type="number" min={24} max={4000} value={heightInput} onChange={(e) => setHeightInput(e.target.value)} className="w-[68px] h-6 lg:h-7 px-2 text-[11px] bg-white border border-neutral-800 rounded-md" />
+                            <span>px high</span>
+                          </>
                         )}
                       </div>
-                      <input type="range" min={20} max={300} value={bgZoom} onChange={(e) => setBgZoom(Number(e.target.value))} className="w-full accent-neutral-900 cursor-pointer h-1.5 bg-neutral-300 rounded-lg" />
                     </div>
-                  </div>
+
+                    <div className="flex flex-col gap-0.5 max-w-[260px]">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[10px] font-semibold text-neutral-800 leading-tight">Opacity</label>
+                        <span className="text-[10px] text-neutral-500 leading-tight">{opacitySlider}%</span>
+                      </div>
+                      <input type="range" min={0} max={100} value={opacitySlider} onChange={(e) => setOpacitySlider(Number(e.target.value))} className="w-full accent-neutral-900 cursor-pointer h-1.5 bg-neutral-300 rounded-lg" />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex flex-wrap items-end gap-2.5">
+                      <div className="flex flex-col gap-0.5">
+                        <label className="text-[10px] font-semibold text-neutral-800 leading-tight">Image resize</label>
+                        <select value={resizeMode} onChange={(e) => applyResizeMode(e.target.value as ResizeMode)} className="h-6 lg:h-7 px-2 text-[11px] font-medium bg-white border border-neutral-800 rounded-md">
+                          <option value="none">No resize</option>
+                          <option value="1:1">1:1 (1080x1080)</option>
+                          <option value="4:5">4:5 (1080x1350)</option>
+                          <option value="9:16">9:16 (1080x1920)</option>
+                          <option value="16:9">16:9 (1920x1080)</option>
+                          <option value="custom">Custom</option>
+                        </select>
+                      </div>
+
+                      {resizeMode === "custom" && (
+                        <div className="flex items-center gap-1.5 text-[10.5px] font-medium">
+                          <input type="number" min={64} max={6000} value={customCanvasWInput} onChange={(e) => setCustomCanvasWInput(e.target.value)} className="w-[62px] h-6 lg:h-7 px-1.5 text-[11px] bg-white border border-neutral-800 rounded-md" />
+                          <span>px wide x</span>
+                          <input type="number" min={64} max={6000} value={customCanvasHInput} onChange={(e) => setCustomCanvasHInput(e.target.value)} className="w-[62px] h-6 lg:h-7 px-1.5 text-[11px] bg-white border border-neutral-800 rounded-md" />
+                          <span>px high</span>
+                        </div>
+                      )}
+
+                      <div className="flex flex-col gap-0.5 min-w-[125px]">
+                        <div className="flex items-center justify-between text-[10px]">
+                          <span className="font-semibold text-neutral-800 leading-tight">Image scale ({bgZoom}%)</span>
+                          {(bgZoom !== 100 || bgPan.x !== 0 || bgPan.y !== 0) && (
+                            <button type="button" onClick={() => { setBgZoom(100); setBgPan({ x: 0, y: 0 }); }} className="text-[10px] underline text-neutral-600 hover:text-black cursor-pointer">
+                              Reset
+                            </button>
+                          )}
+                        </div>
+                        <input type="range" min={20} max={300} value={bgZoom} onChange={(e) => setBgZoom(Number(e.target.value))} className="w-full accent-neutral-900 cursor-pointer h-1.5 bg-neutral-300 rounded-lg" />
+                      </div>
+                    </div>
+
+                    {opt2Panels.map((p, idx) => {
+                      const hasNext = idx + 1 < opt2Panels.length;
+                      return (
+                        <div key={p.id} className="flex flex-col gap-1.5 pt-0.5">
+                          <div className="flex flex-wrap items-end gap-2.5">
+                            <div className="flex flex-col gap-0.5">
+                              <label className="text-[10px] font-semibold text-neutral-800 leading-tight">Shape</label>
+                              <select
+                                value={p.shape}
+                                onChange={(e) => {
+                                  const next = e.target.value as PanelShape;
+                                  const nextH = next === "circle" ? p.widthInput : next === "cta-pill" && parseInt(p.heightInput, 10) > 140 ? "84" : p.heightInput;
+                                  updateOpt2Panel(idx, { shape: next, heightInput: nextH });
+                                }}
+                                className="h-6 lg:h-7 px-2 text-[11px] font-medium bg-white border border-neutral-800 rounded-md"
+                              >
+                                <option value="text-panel">Text panel</option>
+                                <option value="circle">Circle</option>
+                                <option value="cta-pill">CTA pill</option>
+                              </select>
+                            </div>
+
+                            <div className="flex flex-col gap-0.5">
+                              <label className="text-[10px] font-semibold text-neutral-800 leading-tight">Rim calibration</label>
+                              <select value={p.theme} onChange={(e) => updateOpt2Panel(idx, { theme: e.target.value as BackgroundTheme })} className="h-6 lg:h-7 px-2 text-[11px] font-medium bg-white border border-neutral-800 rounded-md">
+                                <option value="imagery">Full bleed image</option>
+                                <option value="grey1200">Grey 1200</option>
+                                <option value="white">White</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col gap-0.5">
+                            <label className="text-[10px] font-semibold text-neutral-800 leading-tight">Size</label>
+                            <div className="flex items-center gap-2 text-[11px] font-medium">
+                              <input
+                                type="number"
+                                min={24}
+                                max={4000}
+                                value={p.widthInput}
+                                onChange={(e) => updateOpt2Panel(idx, { widthInput: e.target.value, heightInput: p.shape === "circle" ? e.target.value : p.heightInput })}
+                                className="w-[68px] h-6 lg:h-7 px-2 text-[11px] bg-white border border-neutral-800 rounded-md"
+                              />
+                              <span>{p.shape === "circle" ? "px diameter" : "px wide x"}</span>
+                              {p.shape !== "circle" && (
+                                <>
+                                  <input type="number" min={24} max={4000} value={p.heightInput} onChange={(e) => updateOpt2Panel(idx, { heightInput: e.target.value })} className="w-[68px] h-6 lg:h-7 px-2 text-[11px] bg-white border border-neutral-800 rounded-md" />
+                                  <span>px high</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+
+                          {idx === 0 && (
+                            <div className="flex flex-col gap-0.5 max-w-[260px]">
+                              <div className="flex items-center justify-between">
+                                <label className="text-[10px] font-semibold text-neutral-800 leading-tight">Opacity</label>
+                                <span className="text-[10px] text-neutral-500 leading-tight">{opacitySlider}%</span>
+                              </div>
+                              <input type="range" min={0} max={100} value={opacitySlider} onChange={(e) => setOpacitySlider(Number(e.target.value))} className="w-full accent-neutral-900 cursor-pointer h-1.5 bg-neutral-300 rounded-lg" />
+                            </div>
+                          )}
+
+                          {idx < 5 && (
+                            <div className="flex flex-col items-start gap-1 pt-0.5">
+                              <span className="text-[10px] font-semibold text-neutral-800 leading-tight">Add another panel?</span>
+                              <button
+                                type="button"
+                                role="checkbox"
+                                aria-checked={hasNext}
+                                onClick={() => toggleExtraPanelAfter(idx)}
+                                className="w-4 h-4 rounded-full border-[1.5px] border-neutral-900 bg-white flex items-center justify-center cursor-pointer"
+                              >
+                                {hasNext && <span className="w-2 h-2 rounded-full bg-neutral-900" />}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </>
                 )}
 
-                <div className="flex flex-wrap items-end gap-2.5">
-                  {screen === "opt1-workspace" && (
-                    <div className="flex flex-col gap-0.5">
-                      <label className="text-[10px] font-semibold text-neutral-800 leading-tight">Format</label>
-                      <select value={format} onChange={(e) => setFormat(e.target.value as FormatRatio)} className="h-6 lg:h-7 px-2 text-[11px] font-medium bg-white border border-neutral-800 rounded-md">
-                        <option value="1:1">1:1</option>
-                        <option value="4:5">4:5</option>
-                        <option value="9:16">9:16</option>
-                        <option value="16:9">16:9</option>
-                      </select>
-                    </div>
-                  )}
-
-                  <div className="flex flex-col gap-0.5">
-                    <label className="text-[10px] font-semibold text-neutral-800 leading-tight">Shape</label>
-                    <select
-                      value={shape}
-                      onChange={(e) => {
-                        const next = e.target.value as PanelShape;
-                        setShape(next);
-                        if (next === "circle") setHeightInput(widthInput);
-                        else if (next === "cta-pill" && parseInt(heightInput, 10) > 140) setHeightInput("84");
-                      }}
-                      className="h-6 lg:h-7 px-2 text-[11px] font-medium bg-white border border-neutral-800 rounded-md"
-                    >
-                      <option value="text-panel">Text panel</option>
-                      <option value="circle">Circle</option>
-                      <option value="cta-pill">CTA pill</option>
-                    </select>
-                  </div>
-
-                  {screen === "opt2-workspace" && (
-                    <div className="flex flex-col gap-0.5">
-                      <label className="text-[10px] font-semibold text-neutral-800 leading-tight">Rim calibration</label>
-                      <select value={theme} onChange={(e) => setTheme(e.target.value as BackgroundTheme)} className="h-6 lg:h-7 px-2 text-[11px] font-medium bg-white border border-neutral-800 rounded-md">
-                        <option value="imagery">Full bleed image</option>
-                        <option value="grey1200">Grey 1200</option>
-                        <option value="white">White</option>
-                      </select>
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex flex-col gap-0.5">
-                  <label className="text-[10px] font-semibold text-neutral-800 leading-tight">Size</label>
-                  <div className="flex items-center gap-2 text-[11px] font-medium">
-                    <input type="number" min={24} max={4000} value={widthInput} onChange={(e) => { setWidthInput(e.target.value); if (shape === "circle") setHeightInput(e.target.value); }} className="w-[68px] h-6 lg:h-7 px-2 text-[11px] bg-white border border-neutral-800 rounded-md" />
-                    <span>{shape === "circle" ? "px diameter" : "px wide x"}</span>
-                    {shape !== "circle" && (
-                      <>
-                        <input type="number" min={24} max={4000} value={heightInput} onChange={(e) => setHeightInput(e.target.value)} className="w-[68px] h-6 lg:h-7 px-2 text-[11px] bg-white border border-neutral-800 rounded-md" />
-                        <span>px high</span>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-0.5 max-w-[260px]">
-                  <div className="flex items-center justify-between">
-                    <label className="text-[10px] font-semibold text-neutral-800 leading-tight">Opacity</label>
-                    <span className="text-[10px] text-neutral-500 leading-tight">{opacitySlider}%</span>
-                  </div>
-                  <input type="range" min={0} max={100} value={opacitySlider} onChange={(e) => setOpacitySlider(Number(e.target.value))} className="w-full accent-neutral-900 cursor-pointer h-1.5 bg-neutral-300 rounded-lg" />
-                </div>
-
-                <div className="pt-0.5 flex flex-wrap items-center gap-2">
+                <div className="pt-1 pb-2 flex flex-wrap items-center gap-2">
                   <button type="button" onClick={handleExportPng} disabled={!hasValidSize} className="px-4 py-1 rounded-full border-[1.5px] border-neutral-900 bg-white hover:bg-neutral-900 hover:text-white disabled:opacity-40 text-[11px] font-semibold transition cursor-pointer">
                     Export .png
                   </button>
@@ -672,10 +808,10 @@ export default function Page() {
         <div className="relative w-full max-w-[1160px] bg-white rounded-2xl shadow-xl overflow-hidden border border-neutral-200/90 flex flex-col">
           {stickerHeaderSrc && (
             <div className="w-full bg-white">
-              <img src={stickerHeaderSrc} alt="Sticker Sheet Header" className="w-full h-auto object-contain pointer-events-none" />
+              <img src={stickerHeaderSrc} alt="Sticker Sheet Header" className="w-full h-auto block pointer-events-none" />
             </div>
           )}
-          <div className="w-full bg-white px-6 sm:px-10 pb-4 pt-2 flex flex-wrap items-center justify-end gap-2">
+          <div className="w-full bg-white px-6 sm:px-10 pt-1 pb-3 flex flex-wrap items-center justify-end gap-2">
             {[
               { id: "all", label: "All (80)" },
               { id: "squares", label: "Squares (20)" },
@@ -690,7 +826,7 @@ export default function Page() {
             ))}
           </div>
 
-          <div className={`w-full px-6 sm:px-10 py-10 space-y-12 ${theme === "grey1200" ? "bg-[#121317] text-white" : theme === "white" ? "bg-[#F8F9FA] text-[#121317] border-t border-neutral-200" : "bg-[#1E272C] text-white"}`}>
+          <div className={`w-full px-6 sm:px-10 py-8 space-y-12 ${theme === "grey1200" ? "bg-[#121317] text-white" : theme === "white" ? "bg-[#F8F9FA] text-[#121317] border-t border-neutral-200" : "bg-[#1E272C] text-white"}`}>
             {visibleCategories.map((cat) => (
               <section key={cat.id} className="space-y-4">
                 <div className="flex items-baseline justify-between border-b pb-2 border-current/15">
