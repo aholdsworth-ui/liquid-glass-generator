@@ -220,16 +220,36 @@ function strokeCrispGlassKeyline(
     ctx.lineWidth = sw;
     ctx.stroke();
   } else if (theme === "white") {
-    const sw = 1.0;
-    const half = 0.5;
-    const grad = ctx.createLinearGradient(x, y, x + w, y + h);
-    grad.addColorStop(0, "rgba(224, 226, 228, 0.36)");
-    grad.addColorStop(0.5, "rgba(234, 236, 238, 0.30)");
-    grad.addColorStop(1, "rgba(218, 220, 222, 0.40)");
-    traceRoundRect(ctx, x + half, y + half, w - sw, h - sw, r - half);
-    ctx.strokeStyle = grad;
+    ctx.save();
+    traceRoundRect(ctx, x, y, w, h, r);
+    ctx.clip();
+    const glowBand = Math.max(6, Math.min(18, Math.min(w, h) * 0.22));
+    const innerGlowGrad = ctx.createLinearGradient(x, y, x, y + h);
+    innerGlowGrad.addColorStop(0, "rgba(255, 255, 255, 0.04)");
+    innerGlowGrad.addColorStop(0.38, "rgba(255, 255, 255, 0.18)");
+    innerGlowGrad.addColorStop(1, "rgba(255, 255, 255, 0.34)");
+    ctx.filter = `blur(${(glowBand * 0.45).toFixed(1)}px)`;
+    traceRoundRect(ctx, x + 1, y + 1, w - 2, h - 2, Math.max(0, r - 1));
+    ctx.strokeStyle = innerGlowGrad;
+    ctx.lineWidth = glowBand;
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.save();
+    traceRoundRect(ctx, x, y, w, h, r);
+    ctx.strokeStyle = "rgba(160, 165, 172, 0.28)";
+    ctx.lineWidth = 0.7;
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.save();
+    const sw = 1.15;
+    const inset = 0.65;
+    traceRoundRect(ctx, x + inset, y + inset, w - inset * 2, h - inset * 2, Math.max(0, r - inset));
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.90)";
     ctx.lineWidth = sw;
     ctx.stroke();
+    ctx.restore();
   } else {
     const sw = Math.max(1.15, Math.min(1.45, minDim * 0.016));
     const half = sw * 0.5;
@@ -268,9 +288,11 @@ function evaluateGlassSurface(
   let glowA = 0;
 
   if (theme === "white") {
-    baseR = 244; baseG = 244; baseB = 243;
-    baseA = Math.min(0.85, (0.07 + s * 0.50) * (0.96 + 0.06 * vNorm));
-    glowA = innerGlow * (0.28 + 0.10 * Math.min(1, s));
+    baseR = 239;
+    baseG = 240;
+    baseB = 242;
+    baseA = Math.min(0.82, (0.08 + s * 0.46) * (0.96 + 0.06 * vNorm));
+    glowA = Math.min(0.58, innerGlow * (0.38 + 0.12 * s));
   } else if (theme === "grey1200") {
     // 100% slider = old 50% (sEff = 0.50), 50% slider = old 25% (sEff = 0.25)
     const sEff = s * 0.5;
@@ -395,14 +417,14 @@ export function generateStandaloneGlassSvg({
   const glowStroke = Math.max(10, Math.min(30, Math.min(w, h) * 0.34));
   const glowBlur = (glowStroke * 0.42).toFixed(1);
   const glowPeak =
-    theme === "grey1200" ? "0.14" : theme === "white" ? "0.42" : "0.34";
+    theme === "grey1200" ? "0.14" : theme === "white" ? "0.54" : "0.34";
   const glowMid =
-    theme === "grey1200" ? "0.11" : theme === "white" ? "0.34" : "0.28";
+    theme === "grey1200" ? "0.11" : theme === "white" ? "0.42" : "0.28";
 
   const sw =
     theme === "grey1200"
       ? Math.max(1.25, Math.min(1.6, Math.min(w, h) * 0.018))
-      : theme === "white" ? 1.0 : Math.max(1.15, Math.min(1.4, Math.min(w, h) * 0.016));
+      : theme === "white" ? 1.15 : Math.max(1.15, Math.min(1.4, Math.min(w, h) * 0.016));
   const half = sw * 0.5;
   const rimStops =
     theme === "grey1200"
@@ -410,9 +432,9 @@ export function generateStandaloneGlassSvg({
       <stop offset="45%" stop-color="#F2F5FA" stop-opacity="0.58" />
       <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.72" />`
       : theme === "white"
-      ? `<stop offset="0%" stop-color="#E0E2E4" stop-opacity="0.36" />
-      <stop offset="50%" stop-color="#EAECEE" stop-opacity="0.30" />
-      <stop offset="100%" stop-color="#DADCDF" stop-opacity="0.40" />`
+      ? `<stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.90" />
+      <stop offset="50%" stop-color="#FFFFFF" stop-opacity="0.90" />
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.90" />`
       : `<stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.58" />
       <stop offset="50%" stop-color="#F6F7F6" stop-opacity="0.42" />
       <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.54" />`;
