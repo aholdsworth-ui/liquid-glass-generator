@@ -29,11 +29,7 @@ export const FORMAT_DIMENSIONS: Record<FormatRatio, { width: number; height: num
   "16:9": { width: 1920, height: 1080, label: "16:9 (1920×1080)" },
 };
 
-export const LOCKED_THEME_OPACITY: Record<BackgroundTheme, number> = {
-  imagery: 35,
-  grey1200: 40,
-  white: 80,
-};
+export const LOCKED_THEME_OPACITY: Record<BackgroundTheme, number> = { imagery: 50, grey1200: 50, white: 50 };
 
 export const STICKER_CATEGORIES: StickerCategory[] = [
   {

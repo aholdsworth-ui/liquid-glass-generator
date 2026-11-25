@@ -6,430 +6,344 @@ import {
   PanelShape,
   BackgroundTheme,
   FormatRatio,
+  FORMAT_DIMENSIONS,
+  STICKER_CATEGORIES,
   renderStandaloneGlassPanel,
   renderRefractedGlassPatch,
   generateStandaloneGlassSvg,
   generateCompositedGlassSvg,
 } from "@/lib/liquidGlassEngine";
+import { StickerCard, drawCoverImage, buildFallbackBackground } from "@/components/StickerCard";
 
 type ScreenId =
   | "home"
+  | "opt1-pre-cover"
+  | "opt1-sticker-cover"
+  | "opt3-sheet"
   | "opt1-bg-select"
   | "opt1-imagery-select"
   | "opt1-workspace"
   | "opt2-upload"
-  | "opt2-workspace"
-  | "opt3-bg-select"
-  | "opt3-sheet";
+  | "opt2-workspace";
 
-const FORMAT_DIMENSIONS: Record<FormatRatio, { width: number; height: number }> = {
-  "1:1": { width: 1080, height: 1080 },
-  "4:5": { width: 1080, height: 1350 },
-  "9:16": { width: 1080, height: 1920 },
-  "16:9": { width: 1920, height: 1080 },
-};
-
-const LOCKED_THEME_OPACITY: Record<BackgroundTheme, number> = {
-  imagery: 35,
-  grey1200: 40,
-  white: 80,
-};
-
-const STICKER_CATEGORIES: {
-  id: string;
-  title: string;
-  count: number;
-  shape: PanelShape;
-  sizes: [number, number][];
-}[] = [
-  {
-    id: "squares",
-    title: "Square Text Panels",
-    count: 20,
-    shape: "text-panel",
-    sizes: [
-      [120, 120], [160, 160], [200, 200], [240, 240], [280, 280],
-      [320, 320], [360, 360], [400, 400], [440, 440], [480, 480],
-      [520, 520], [560, 560], [600, 600], [640, 640], [700, 700],
-      [760, 760], [820, 820], [880, 880], [920, 920], [960, 960],
-    ],
-  },
-  {
-    id: "horizontal",
-    title: "Horizontal Text Panels",
-    count: 20,
-    shape: "text-panel",
-    sizes: [
-      [330, 110], [420, 110], [480, 140], [560, 160], [640, 180],
-      [720, 220], [840, 240], [920, 260], [960, 300], [960, 420],
-      [960, 540], [800, 360], [880, 480], [1040, 420], [1200, 360],
-      [1200, 520], [1400, 440], [1400, 680], [1680, 320], [1760, 840],
-    ],
-  },
-  {
-    id: "vertical",
-    title: "Vertical Text Panels",
-    count: 20,
-    shape: "text-panel",
-    sizes: [
-      [260, 360], [300, 420], [340, 480], [380, 520], [420, 560],
-      [460, 640], [480, 720], [520, 780], [560, 840], [600, 920],
-      [720, 920], [640, 960], [760, 1080], [840, 1120], [920, 1150],
-      [960, 1230], [840, 1440], [920, 1600], [960, 1680], [960, 1760],
-    ],
-  },
-  {
-    id: "pills",
-    title: "CTA Pills",
-    count: 10,
-    shape: "cta-pill",
-    sizes: [
-      [160, 52], [205, 64], [205, 80], [260, 72], [300, 80],
-      [360, 88], [420, 80], [480, 96], [560, 104], [680, 112],
-    ],
-  },
-  {
-    id: "circles",
-    title: "Circles",
-    count: 10,
-    shape: "circle",
-    sizes: [
-      [56, 56], [72, 72], [88, 88], [104, 104], [120, 120],
-      [160, 160], [200, 200], [260, 260], [340, 340], [440, 440],
-    ],
-  },
-];
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const bgAssetsAny = BG_ASSETS as Record<string, any>;
-const pageAssetsAny = PAGE_ASSETS as Record<string, string>;
-
-function StickerCard({
-  width,
-  height,
-  shape,
-  theme,
-  isOpen,
-  onToggleMenu,
-  onExportPng,
-  onExportSvg,
-}: {
-  width: number;
-  height: number;
-  shape: PanelShape;
-  theme: BackgroundTheme;
-  isOpen: boolean;
-  onToggleMenu: (next: boolean) => void;
-  onExportPng: (canvas: HTMLCanvasElement, sizeStr: string, shape: PanelShape) => void;
-  onExportSvg: (svgStr: string, sizeStr: string, shape: PanelShape) => void;
-}) {
-  const [previewUrl, setPreviewUrl] = useState("");
-  const [isGenerating, setIsGenerating] = useState(false);
-  const cardRef = useRef<HTMLDivElement>(null);
-  const lockedOpacity = LOCKED_THEME_OPACITY[theme] / 100;
-
-  useEffect(() => {
-    setPreviewUrl("");
-    const el = cardRef.current;
-    if (!el) return;
-
-    let cancelled = false;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting && !cancelled) {
-          observer.disconnect();
-          const maxPreviewDim = 220;
-          const scale = Math.min(1, maxPreviewDim / Math.max(width, height));
-          const pw = Math.max(20, Math.round(width * scale));
-          const ph = Math.max(20, Math.round(height * scale));
-          const scaledRadius = Math.max(4, 20 * scale);
-          const thumbCanvas = renderStandaloneGlassPanel({
-            width: pw,
-            height: ph,
-            shape,
-            theme,
-            frostOpacity: lockedOpacity,
-            customRadius: scaledRadius,
-          });
-          if (!cancelled) {
-            setPreviewUrl(thumbCanvas.toDataURL("image/png"));
-          }
-        }
-      },
-      { rootMargin: "200px" }
-    );
-    observer.observe(el);
-    return () => {
-      cancelled = true;
-      observer.disconnect();
-    };
-  }, [width, height, shape, theme, lockedOpacity]);
-
-  const handleChoosePng = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (isGenerating) return;
-    setIsGenerating(true);
-    requestAnimationFrame(() => {
-      const fullCanvas = renderStandaloneGlassPanel({
-        width,
-        height,
-        shape,
-        theme,
-        frostOpacity: lockedOpacity,
-      });
-      onExportPng(fullCanvas, `${width}x${height}`, shape);
-      setIsGenerating(false);
-      onToggleMenu(false);
-    });
-  };
-
-  const handleChooseSvg = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    const svgStr = generateStandaloneGlassSvg({
-      width,
-      height,
-      shape,
-      theme,
-      frostOpacity: lockedOpacity,
-    });
-    onExportSvg(svgStr, `${width}x${height}`, shape);
-    onToggleMenu(false);
-  };
-
-  return (
-    <div
-      ref={cardRef}
-      onClick={(e) => {
-        e.stopPropagation();
-        onToggleMenu(!isOpen);
-      }}
-      className={`relative group flex flex-col items-end justify-between gap-2 p-3.5 rounded-xl border transition cursor-pointer w-full ${
-        theme === "white"
-          ? "border-neutral-200/80 hover:border-neutral-400 bg-white/60 hover:bg-white"
-          : "border-white/10 hover:border-white/25 bg-white/[0.02] hover:bg-white/[0.06]"
-      } ${isOpen ? "ring-2 ring-blue-500/70" : ""}`}
-    >
-      <div className="relative w-full h-28 flex items-center justify-center overflow-hidden p-1">
-        {previewUrl ? (
-          <img
-            src={previewUrl}
-            alt={`${width}px X ${height}px`}
-            className={`max-w-full max-h-full object-contain transition-transform ${
-              isOpen ? "scale-[0.98] opacity-40" : "group-hover:scale-[1.03]"
-            }`}
-          />
-        ) : (
-          <div className="w-16 h-10 rounded-lg bg-neutral-400/10 animate-pulse" />
-        )}
-
-        {isOpen && (
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="absolute inset-0 z-20 flex items-center justify-center p-2"
-          >
-            <div className="w-40 rounded-xl bg-white text-[#121317] shadow-xl border border-neutral-200 overflow-hidden flex flex-col divide-y divide-neutral-100">
-              <button
-                type="button"
-                onClick={handleChoosePng}
-                className="w-full px-3.5 py-2.5 text-xs font-semibold text-left hover:bg-neutral-100 flex items-center justify-between transition cursor-pointer"
-              >
-                <span>{isGenerating ? "Exporting..." : "Export .png"}</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleChooseSvg}
-                className="w-full px-3.5 py-2.5 text-xs font-semibold text-left hover:bg-neutral-100 flex items-center justify-between transition cursor-pointer"
-              >
-                <span>Export .svg</span>
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <span
-        className={`text-[11px] font-medium flex items-center gap-1.5 ${
-          theme === "white" ? "text-neutral-700" : "text-neutral-300"
-        }`}
-      >
-        {`${width}px X ${height}px`}
-      </span>
-    </div>
-  );
-}
+type ResizeMode = "none" | "1:1" | "4:5" | "9:16" | "16:9" | "custom";
 
 export default function Page() {
   const [screen, setScreen] = useState<ScreenId>("home");
   const [theme, setTheme] = useState<BackgroundTheme>("imagery");
-  const [imageryOption, setImageryOption] = useState<number>(1);
+  const [imageryIndex, setImageryIndex] = useState(0);
   const [format, setFormat] = useState<FormatRatio>("1:1");
   const [shape, setShape] = useState<PanelShape>("text-panel");
   const [widthInput, setWidthInput] = useState("420");
   const [heightInput, setHeightInput] = useState("180");
   const [opacitySlider, setOpacitySlider] = useState(50);
+
   const [activeStickerFilter, setActiveStickerFilter] = useState("all");
   const [openStickerMenuKey, setOpenStickerMenuKey] = useState<string | null>(null);
 
-  const [panelPos, setPanelPos] = useState({ x: 330, y: 450 });
-  const [isDragging, setIsDragging] = useState(false);
-  const dragOffset = useRef({ dx: 0, dy: 0 });
+  const [resizeMode, setResizeMode] = useState<ResizeMode>("none");
+  const [customCanvasWInput, setCustomCanvasWInput] = useState("1080");
+  const [customCanvasHInput, setCustomCanvasHInput] = useState("1080");
+  const [bgZoom, setBgZoom] = useState(100);
+  const [bgPan, setBgPan] = useState({ x: 0, y: 0 });
 
-  const [holdingBgImg, setHoldingBgImg] = useState<HTMLImageElement | null>(null);
+  const [panelPos, setPanelPos] = useState({ x: 330, y: 450 });
   const [uploadedBgImg, setUploadedBgImg] = useState<HTMLImageElement | null>(null);
   const [uploadedBgDims, setUploadedBgDims] = useState({ width: 1920, height: 1080 });
   const [toastMsg, setToastMsg] = useState("");
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const previewCanvasRef = useRef<HTMLCanvasElement>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const stageBgCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  const stageDims =
-    screen === "opt2-workspace" ? uploadedBgDims : FORMAT_DIMENSIONS[format];
+  const dragModeRef = useRef<"none" | "panel" | "pan-bg" | "scale-bg">("none");
+  const dragStartRef = useRef({ cx: 0, cy: 0, panelX: 0, panelY: 0, panX: 0, panY: 0, startDist: 1, startZoom: 100, icx: 0, icy: 0 });
+  const layoutRef = useRef({ padX: 0, padY: 0, targetW: 1080, targetH: 1080, drawX: 0, drawY: 0, drawW: 1080, drawH: 1080 });
+
+  const opt2TargetDims =
+    resizeMode === "none"
+      ? uploadedBgDims
+      : resizeMode === "custom"
+      ? {
+          width: Math.max(64, Math.min(6000, parseInt(customCanvasWInput || "0", 10) || 1080)),
+          height: Math.max(64, Math.min(6000, parseInt(customCanvasHInput || "0", 10) || 1080)),
+        }
+      : { width: FORMAT_DIMENSIONS[resizeMode].width, height: FORMAT_DIMENSIONS[resizeMode].height };
 
   const parsedW = Math.max(0, parseInt(widthInput || "0", 10) || 0);
-  const parsedH =
-    shape === "circle" ? parsedW : Math.max(0, parseInt(heightInput || "0", 10) || 0);
+  const parsedH = shape === "circle" ? parsedW : Math.max(0, parseInt(heightInput || "0", 10) || 0);
   const hasValidSize = parsedW >= 24 && parsedH >= 24;
 
-  const selectThemeAndDefaultOpacity = (nextTheme: BackgroundTheme) => {
-    setTheme(nextTheme);
-    setOpacitySlider(50);
-  };
-
   useEffect(() => {
-    const closeMenus = () => setOpenStickerMenuKey(null);
-    window.addEventListener("click", closeMenus);
-    return () => window.removeEventListener("click", closeMenus);
+    const fn = () => setOpenStickerMenuKey(null);
+    window.addEventListener("click", fn);
+    return () => window.removeEventListener("click", fn);
   }, []);
 
   useEffect(() => {
     if (screen !== "opt1-workspace") return;
-    const ratioAssets = bgAssetsAny[format];
-    if (!ratioAssets) return;
-    const src =
-      theme === "white"
-        ? ratioAssets.white
-        : theme === "grey1200"
-        ? ratioAssets.grey1200
-        : ratioAssets.imagery?.[imageryOption] || ratioAssets.imagery?.[1];
-    if (!src) return;
-
-    let cancelled = false;
+    const dims = FORMAT_DIMENSIONS[format];
+    const srcUrl =
+      theme === "imagery" ? BG_ASSETS.imagery[imageryIndex] || BG_ASSETS.imagery[0] : theme === "grey1200" ? BG_ASSETS.grey1200[format] : BG_ASSETS.white[format];
+    const center = () =>
+      setPanelPos({
+        x: Math.max(16, Math.round((dims.width - Math.max(80, parsedW)) / 2)),
+        y: Math.max(16, Math.round((dims.height - Math.max(80, parsedH)) / 2)),
+      });
+    if (!srcUrl) {
+      stageBgCanvasRef.current = buildFallbackBackground(dims.width, dims.height, theme);
+      center();
+      return;
+    }
+    let dead = false;
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.onload = () => {
-      if (cancelled) return;
-      setHoldingBgImg(img);
-      setPanelPos({
-        x: Math.max(20, Math.round((FORMAT_DIMENSIONS[format].width - Math.max(80, parsedW)) / 2)),
-        y: Math.max(20, Math.round((FORMAT_DIMENSIONS[format].height - Math.max(80, parsedH)) / 2)),
-      });
+      if (dead) return;
+      const c = document.createElement("canvas");
+      c.width = dims.width;
+      c.height = dims.height;
+      drawCoverImage(c.getContext("2d")!, img, dims.width, dims.height);
+      stageBgCanvasRef.current = c;
+      center();
     };
-    img.src = src;
+    img.onerror = () => {
+      if (dead) return;
+      stageBgCanvasRef.current = buildFallbackBackground(dims.width, dims.height, theme);
+      center();
+    };
+    img.src = srcUrl;
     return () => {
-      cancelled = true;
+      dead = true;
     };
-  }, [screen, format, theme, imageryOption]);
+  }, [screen, format, theme, imageryIndex]);
+
+  const applyResizeMode = (nextMode: ResizeMode) => {
+    setResizeMode(nextMode);
+    setBgZoom(100);
+    setBgPan({ x: 0, y: 0 });
+    const nd =
+      nextMode === "none"
+        ? uploadedBgDims
+        : nextMode === "custom"
+        ? { width: Math.max(64, parseInt(customCanvasWInput || "0", 10) || 1080), height: Math.max(64, parseInt(customCanvasHInput || "0", 10) || 1080) }
+        : FORMAT_DIMENSIONS[nextMode];
+    const pw = Math.min(parsedW || 360, Math.round(nd.width * 0.8));
+    const ph = Math.min(parsedH || 140, Math.round(nd.height * 0.8));
+    if (parsedW > nd.width * 0.9) setWidthInput(String(pw));
+    if (parsedH > nd.height * 0.9) setHeightInput(String(ph));
+    setPanelPos({ x: Math.max(12, Math.round((nd.width - pw) / 2)), y: Math.max(12, Math.round((nd.height - ph) / 2)) });
+  };
+
+  const buildCroppedOpt2Background = useCallback((): HTMLCanvasElement | null => {
+    if (!uploadedBgImg) return null;
+    const tw = opt2TargetDims.width;
+    const th = opt2TargetDims.height;
+    const sc = Math.max(tw / uploadedBgDims.width, th / uploadedBgDims.height) * (bgZoom / 100);
+    const dw = uploadedBgDims.width * sc;
+    const dh = uploadedBgDims.height * sc;
+    const c = document.createElement("canvas");
+    c.width = tw;
+    c.height = th;
+    const ctx = c.getContext("2d")!;
+    ctx.fillStyle = theme === "grey1200" ? "#121317" : "#FFFFFF";
+    ctx.fillRect(0, 0, tw, th);
+    ctx.drawImage(uploadedBgImg, tw / 2 + bgPan.x - dw / 2, th / 2 + bgPan.y - dh / 2, dw, dh);
+    return c;
+  }, [uploadedBgImg, uploadedBgDims, opt2TargetDims, bgZoom, bgPan, theme]);
 
   const drawWorkspace = useCallback(() => {
     const canvas = previewCanvasRef.current;
     if (!canvas) return;
-    const bgSource = screen === "opt2-workspace" ? uploadedBgImg : holdingBgImg;
-    if (!bgSource) return;
 
-    canvas.width = stageDims.width;
-    canvas.height = stageDims.height;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.clearRect(0, 0, stageDims.width, stageDims.height);
-    ctx.drawImage(bgSource, 0, 0, stageDims.width, stageDims.height);
-
-    if (hasValidSize) {
-      const patch = renderRefractedGlassPatch(
-        bgSource,
-        stageDims.width,
-        stageDims.height,
-        panelPos.x,
-        panelPos.y,
-        {
+    if (screen === "opt1-workspace") {
+      const bgSource = stageBgCanvasRef.current;
+      if (!bgSource) return;
+      const tw = FORMAT_DIMENSIONS[format].width;
+      const th = FORMAT_DIMENSIONS[format].height;
+      layoutRef.current = { padX: 0, padY: 0, targetW: tw, targetH: th, drawX: 0, drawY: 0, drawW: tw, drawH: th };
+      canvas.width = tw;
+      canvas.height = th;
+      const ctx = canvas.getContext("2d")!;
+      ctx.clearRect(0, 0, tw, th);
+      ctx.drawImage(bgSource, 0, 0, tw, th);
+      if (hasValidSize) {
+        const patch = renderRefractedGlassPatch(bgSource, tw, th, panelPos.x, panelPos.y, {
           width: parsedW,
           height: parsedH,
           shape,
           theme,
           frostOpacity: opacitySlider / 100,
-        }
-      );
-      ctx.drawImage(patch, Math.round(panelPos.x - (patch.width - parsedW) / 2), Math.round(panelPos.y - (patch.height - parsedH) / 2));
+        });
+        ctx.drawImage(patch, Math.round(panelPos.x - (patch.width - parsedW) / 2), Math.round(panelPos.y - (patch.height - parsedH) / 2));
+      }
+      return;
     }
-  }, [
-    screen,
-    uploadedBgImg,
-    holdingBgImg,
-    stageDims,
-    hasValidSize,
-    parsedW,
-    parsedH,
-    panelPos,
-    shape,
-    theme,
-    opacitySlider,
-  ]);
+
+    if (screen === "opt2-workspace" && uploadedBgImg) {
+      const tw = opt2TargetDims.width;
+      const th = opt2TargetDims.height;
+      const baseCover = Math.max(tw / uploadedBgDims.width, th / uploadedBgDims.height);
+      const natW = uploadedBgDims.width * baseCover;
+      const natH = uploadedBgDims.height * baseCover;
+      const sc = baseCover * (bgZoom / 100);
+      const dw = uploadedBgDims.width * sc;
+      const dh = uploadedBgDims.height * sc;
+      const dx = tw / 2 + bgPan.x - dw / 2;
+      const dy = th / 2 + bgPan.y - dh / 2;
+
+      const padX = resizeMode === "none" ? Math.round(tw * 0.04) : Math.min(Math.round(tw * 0.45), Math.round(Math.max(tw * 0.08, (natW - tw) / 2 + tw * 0.05)));
+      const padY = resizeMode === "none" ? Math.round(th * 0.04) : Math.min(Math.round(th * 0.45), Math.round(Math.max(th * 0.08, (natH - th) / 2 + th * 0.05)));
+      layoutRef.current = { padX, padY, targetW: tw, targetH: th, drawX: dx, drawY: dy, drawW: dw, drawH: dh };
+
+      const cw = tw + padX * 2;
+      const ch = th + padY * 2;
+      canvas.width = cw;
+      canvas.height = ch;
+      const ctx = canvas.getContext("2d")!;
+      ctx.fillStyle = "#F1F3F4";
+      ctx.fillRect(0, 0, cw, ch);
+      ctx.drawImage(uploadedBgImg, padX + dx, padY + dy, dw, dh);
+
+      // Grey out overhanging image outside the chosen format frame
+      ctx.fillStyle = "rgba(241, 243, 244, 0.76)";
+      ctx.fillRect(0, 0, cw, padY);
+      ctx.fillRect(0, padY + th, cw, padY);
+      ctx.fillRect(0, padY, padX, th);
+      ctx.fillRect(padX + tw, padY, padX, th);
+
+      const croppedBg = buildCroppedOpt2Background();
+      if (croppedBg) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(padX, padY, tw, th);
+        ctx.clip();
+        ctx.drawImage(croppedBg, padX, padY, tw, th);
+        if (hasValidSize) {
+          const patch = renderRefractedGlassPatch(croppedBg, tw, th, panelPos.x, panelPos.y, {
+            width: parsedW,
+            height: parsedH,
+            shape,
+            theme,
+            frostOpacity: opacitySlider / 100,
+          });
+          ctx.drawImage(patch, Math.round(padX + panelPos.x - (patch.width - parsedW) / 2), Math.round(padY + panelPos.y - (patch.height - parsedH) / 2));
+        }
+        ctx.restore();
+      }
+
+      const u = Math.max(2, Math.round(Math.max(cw, ch) * 0.0022));
+      ctx.save();
+      ctx.strokeStyle = "rgba(18,19,23,0.4)";
+      ctx.setLineDash([u * 4, u * 3]);
+      ctx.lineWidth = u;
+      ctx.strokeRect(padX + dx, padY + dy, dw, dh);
+      ctx.setLineDash([]);
+      ctx.strokeStyle = "#121317";
+      ctx.lineWidth = Math.max(2, u * 1.3);
+      ctx.strokeRect(padX, padY, tw, th);
+
+      const hr = Math.max(7, Math.round(Math.max(cw, ch) * 0.009));
+      [
+        [padX + dx, padY + dy],
+        [padX + dx + dw, padY + dy],
+        [padX + dx, padY + dy + dh],
+        [padX + dx + dw, padY + dy + dh],
+      ].forEach(([hx, hy]) => {
+        ctx.fillStyle = "#FFFFFF";
+        ctx.strokeStyle = "#121317";
+        ctx.lineWidth = Math.max(2, u);
+        ctx.beginPath();
+        ctx.arc(Math.max(hr, Math.min(cw - hr, hx)), Math.max(hr, Math.min(ch - hr, hy)), hr, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      });
+      ctx.restore();
+    }
+  }, [screen, format, uploadedBgImg, uploadedBgDims, opt2TargetDims, resizeMode, bgZoom, bgPan, buildCroppedOpt2Background, hasValidSize, parsedW, parsedH, panelPos, shape, theme, opacitySlider]);
 
   useEffect(() => {
-    if (screen === "opt1-workspace" || screen === "opt2-workspace") {
-      drawWorkspace();
-    }
+    if (screen === "opt1-workspace" || screen === "opt2-workspace") drawWorkspace();
   }, [screen, drawWorkspace]);
 
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!hasValidSize || !previewCanvasRef.current) return;
-    const rect = previewCanvasRef.current.getBoundingClientRect();
-    const scaleX = stageDims.width / rect.width;
-    const scaleY = stageDims.height / rect.height;
-    const clickX = (e.clientX - rect.left) * scaleX;
-    const clickY = (e.clientY - rect.top) * scaleY;
+    const canvas = previewCanvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const sx = canvas.width / rect.width;
+    const sy = canvas.height / rect.height;
+    const rawX = (e.clientX - rect.left) * sx;
+    const rawY = (e.clientY - rect.top) * sy;
+    const { padX, padY, targetW, targetH, drawX, drawY, drawW, drawH } = layoutRef.current;
+    const cx = rawX - padX;
+    const cy = rawY - padY;
 
-    if (
-      clickX >= panelPos.x &&
-      clickX <= panelPos.x + parsedW &&
-      clickY >= panelPos.y &&
-      clickY <= panelPos.y + parsedH
-    ) {
-      setIsDragging(true);
-      dragOffset.current = { dx: clickX - panelPos.x, dy: clickY - panelPos.y };
+    if (hasValidSize && cx >= panelPos.x && cx <= panelPos.x + parsedW && cy >= panelPos.y && cy <= panelPos.y + parsedH) {
+      dragModeRef.current = "panel";
+      dragStartRef.current = { ...dragStartRef.current, cx, cy, panelX: panelPos.x, panelY: panelPos.y };
       e.currentTarget.setPointerCapture(e.pointerId);
-    } else {
-      const nx = Math.max(0, Math.min(stageDims.width - parsedW, clickX - parsedW / 2));
-      const ny = Math.max(0, Math.min(stageDims.height - parsedH, clickY - parsedH / 2));
+      return;
+    }
+
+    if (screen === "opt2-workspace") {
+      const hr = Math.max(7, Math.round(Math.max(canvas.width, canvas.height) * 0.009));
+      const hit = [
+        [drawX, drawY],
+        [drawX + drawW, drawY],
+        [drawX, drawY + drawH],
+        [drawX + drawW, drawY + drawH],
+      ].some(([kx, ky]) => Math.hypot(rawX - Math.max(hr, Math.min(canvas.width - hr, padX + kx)), rawY - Math.max(hr, Math.min(canvas.height - hr, padY + ky))) <= 22 * sx);
+
+      if (hit) {
+        const icx = drawX + drawW / 2;
+        const icy = drawY + drawH / 2;
+        dragModeRef.current = "scale-bg";
+        dragStartRef.current = { ...dragStartRef.current, cx, cy, startDist: Math.max(20, Math.hypot(cx - icx, cy - icy)), startZoom: bgZoom, icx, icy };
+      } else {
+        dragModeRef.current = "pan-bg";
+        dragStartRef.current = { ...dragStartRef.current, cx, cy, panX: bgPan.x, panY: bgPan.y };
+      }
+      e.currentTarget.setPointerCapture(e.pointerId);
+      return;
+    }
+
+    if (hasValidSize) {
+      const nx = Math.max(0, Math.min(targetW - parsedW, cx - parsedW / 2));
+      const ny = Math.max(0, Math.min(targetH - parsedH, cy - parsedH / 2));
       setPanelPos({ x: nx, y: ny });
-      setIsDragging(true);
-      dragOffset.current = { dx: parsedW / 2, dy: parsedH / 2 };
+      dragModeRef.current = "panel";
+      dragStartRef.current = { ...dragStartRef.current, cx, cy, panelX: nx, panelY: ny };
       e.currentTarget.setPointerCapture(e.pointerId);
     }
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isDragging || !previewCanvasRef.current) return;
-    const rect = previewCanvasRef.current.getBoundingClientRect();
-    const scaleX = stageDims.width / rect.width;
-    const scaleY = stageDims.height / rect.height;
-    const curX = (e.clientX - rect.left) * scaleX;
-    const curY = (e.clientY - rect.top) * scaleY;
+    if (dragModeRef.current === "none" || !previewCanvasRef.current) return;
+    const canvas = previewCanvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const { padX, padY, targetW, targetH } = layoutRef.current;
+    const cx = (e.clientX - rect.left) * (canvas.width / rect.width) - padX;
+    const cy = (e.clientY - rect.top) * (canvas.height / rect.height) - padY;
 
-    const nx = Math.max(
-      -parsedW * 0.25,
-      Math.min(stageDims.width - parsedW * 0.75, curX - dragOffset.current.dx)
-    );
-    const ny = Math.max(
-      -parsedH * 0.25,
-      Math.min(stageDims.height - parsedH * 0.75, curY - dragOffset.current.dy)
-    );
-    setPanelPos({ x: nx, y: ny });
+    if (dragModeRef.current === "panel") {
+      setPanelPos({
+        x: Math.max(0, Math.min(targetW - parsedW, Math.round(dragStartRef.current.panelX + cx - dragStartRef.current.cx))),
+        y: Math.max(0, Math.min(targetH - parsedH, Math.round(dragStartRef.current.panelY + cy - dragStartRef.current.cy))),
+      });
+    } else if (dragModeRef.current === "pan-bg") {
+      setBgPan({ x: Math.round(dragStartRef.current.panX + cx - dragStartRef.current.cx), y: Math.round(dragStartRef.current.panY + cy - dragStartRef.current.cy) });
+    } else if (dragModeRef.current === "scale-bg") {
+      const dist = Math.max(10, Math.hypot(cx - dragStartRef.current.icx, cy - dragStartRef.current.icy));
+      setBgZoom(Math.max(20, Math.min(300, Math.round(dragStartRef.current.startZoom * (dist / dragStartRef.current.startDist)))));
+    }
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (isDragging) {
-      setIsDragging(false);
-      e.currentTarget.releasePointerCapture(e.pointerId);
+    if (dragModeRef.current !== "none") {
+      dragModeRef.current = "none";
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch {}
     }
   };
 
@@ -440,9 +354,7 @@ export default function Page() {
       const a = document.createElement("a");
       a.href = url;
       a.download = filename;
-      document.body.appendChild(a);
       a.click();
-      document.body.removeChild(a);
       URL.revokeObjectURL(url);
       setToastMsg(`Downloaded ${filename}`);
       setTimeout(() => setToastMsg(""), 2800);
@@ -450,14 +362,11 @@ export default function Page() {
   };
 
   const downloadSvg = (svgContent: string, filename: string) => {
-    const blob = new Blob([svgContent], { type: "image/svg+xml;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
+    const url = URL.createObjectURL(new Blob([svgContent], { type: "image/svg+xml;charset=utf-8" }));
     const a = document.createElement("a");
     a.href = url;
     a.download = filename;
-    document.body.appendChild(a);
     a.click();
-    document.body.removeChild(a);
     URL.revokeObjectURL(url);
     setToastMsg(`Downloaded ${filename}`);
     setTimeout(() => setToastMsg(""), 2800);
@@ -466,163 +375,107 @@ export default function Page() {
   const handleExportPng = () => {
     if (!hasValidSize) return;
     if (screen === "opt1-workspace") {
-      const isolated = renderStandaloneGlassPanel({
-        width: parsedW,
-        height: parsedH,
-        shape,
-        theme,
-        frostOpacity: opacitySlider / 100,
-      });
-      downloadCanvas(isolated, `glass-${shape}-${theme}-${parsedW}x${parsedH}.png`);
-    } else if (screen === "opt2-workspace" && uploadedBgImg) {
+      downloadCanvas(renderStandaloneGlassPanel({ width: parsedW, height: parsedH, shape, theme, frostOpacity: opacitySlider / 100 }), `glass-${shape}-${theme}-${parsedW}x${parsedH}.png`);
+    } else if (screen === "opt2-workspace") {
+      const croppedBg = buildCroppedOpt2Background();
+      if (!croppedBg) return;
+      const tw = opt2TargetDims.width;
+      const th = opt2TargetDims.height;
       const out = document.createElement("canvas");
-      out.width = uploadedBgDims.width;
-      out.height = uploadedBgDims.height;
-      const ctx = out.getContext("2d");
-      if (!ctx) return;
-      ctx.drawImage(uploadedBgImg, 0, 0, uploadedBgDims.width, uploadedBgDims.height);
-      const patch = renderRefractedGlassPatch(
-        uploadedBgImg,
-        uploadedBgDims.width,
-        uploadedBgDims.height,
-        panelPos.x,
-        panelPos.y,
-        {
-          width: parsedW,
-          height: parsedH,
-          shape,
-          theme,
-          frostOpacity: opacitySlider / 100,
-        }
-      );
+      out.width = tw;
+      out.height = th;
+      const ctx = out.getContext("2d")!;
+      ctx.drawImage(croppedBg, 0, 0, tw, th);
+      const patch = renderRefractedGlassPatch(croppedBg, tw, th, panelPos.x, panelPos.y, { width: parsedW, height: parsedH, shape, theme, frostOpacity: opacitySlider / 100 });
       ctx.drawImage(patch, Math.round(panelPos.x - (patch.width - parsedW) / 2), Math.round(panelPos.y - (patch.height - parsedH) / 2));
-      downloadCanvas(out, `glass-composited-${uploadedBgDims.width}x${uploadedBgDims.height}.png`);
+      downloadCanvas(out, `glass-artwork-${tw}x${th}.png`);
     }
   };
 
   const handleExportSvg = () => {
     if (!hasValidSize) return;
     if (screen === "opt1-workspace") {
-      const svgStr = generateStandaloneGlassSvg({
-        width: parsedW,
-        height: parsedH,
-        shape,
-        theme,
-        frostOpacity: opacitySlider / 100,
-      });
-      downloadSvg(svgStr, `glass-${shape}-${theme}-${parsedW}x${parsedH}.svg`);
-    } else if (screen === "opt2-workspace" && uploadedBgImg) {
-      const svgStr = generateCompositedGlassSvg(
-        uploadedBgImg,
-        uploadedBgDims.width,
-        uploadedBgDims.height,
-        panelPos.x,
-        panelPos.y,
-        {
-          width: parsedW,
-          height: parsedH,
-          shape,
-          theme,
-          frostOpacity: opacitySlider / 100,
-        }
+      downloadSvg(generateStandaloneGlassSvg({ width: parsedW, height: parsedH, shape, theme, frostOpacity: opacitySlider / 100 }), `glass-${shape}-${theme}-${parsedW}x${parsedH}.svg`);
+    } else if (screen === "opt2-workspace") {
+      const croppedBg = buildCroppedOpt2Background();
+      if (!croppedBg) return;
+      downloadSvg(
+        generateCompositedGlassSvg(croppedBg, opt2TargetDims.width, opt2TargetDims.height, panelPos.x, panelPos.y, { width: parsedW, height: parsedH, shape, theme, frostOpacity: opacitySlider / 100 }),
+        `glass-artwork-${opt2TargetDims.width}x${opt2TargetDims.height}.svg`
       );
-      downloadSvg(svgStr, `glass-composited-${uploadedBgDims.width}x${uploadedBgDims.height}.svg`);
     }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const url = URL.createObjectURL(file);
     const img = new Image();
     img.onload = () => {
-      const sample = document.createElement("canvas");
-      sample.width = 24;
-      sample.height = 24;
-      const sCtx = sample.getContext("2d");
-      if (sCtx) {
-        sCtx.drawImage(img, 0, 0, 24, 24);
-        const px = sCtx.getImageData(0, 0, 24, 24).data;
-        let lum = 0,
-          whites = 0;
-        for (let i = 0; i < px.length; i += 4) {
-          lum += 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
-          if (px[i] > 240 && px[i + 1] > 240 && px[i + 2] > 240) whites++;
-        }
-        const avgLum = lum / (24 * 24);
-        if (whites > 24 * 24 * 0.5) selectThemeAndDefaultOpacity("white");
-        else if (avgLum < 45) selectThemeAndDefaultOpacity("grey1200");
-        else selectThemeAndDefaultOpacity("imagery");
+      const sc = document.createElement("canvas");
+      sc.width = 24;
+      sc.height = 24;
+      const sCtx = sc.getContext("2d")!;
+      sCtx.drawImage(img, 0, 0, 24, 24);
+      const px = sCtx.getImageData(0, 0, 24, 24).data;
+      let lum = 0, whites = 0;
+      for (let i = 0; i < px.length; i += 4) {
+        lum += 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
+        if (px[i] > 240 && px[i + 1] > 240 && px[i + 2] > 240) whites++;
       }
-
+      setTheme(whites > 288 ? "white" : lum / 576 < 45 ? "grey1200" : "imagery");
+      setOpacitySlider(50);
+      setResizeMode("none");
+      setBgZoom(100);
+      setBgPan({ x: 0, y: 0 });
       setUploadedBgDims({ width: img.naturalWidth, height: img.naturalHeight });
+      setCustomCanvasWInput(String(img.naturalWidth));
+      setCustomCanvasHInput(String(img.naturalHeight));
       setUploadedBgImg(img);
-      const initW = Math.min(480, Math.round(img.naturalWidth * 0.35));
-      const initH = Math.min(190, Math.round(img.naturalHeight * 0.2));
-      setWidthInput(String(initW));
-      setHeightInput(String(initH));
-      setPanelPos({
-        x: Math.round((img.naturalWidth - initW) / 2),
-        y: Math.round((img.naturalHeight - initH) / 2),
-      });
+      const iw = Math.max(120, Math.min(480, Math.round(img.naturalWidth * 0.35)));
+      const ih = Math.max(64, Math.min(190, Math.round(img.naturalHeight * 0.2)));
+      setWidthInput(String(iw));
+      setHeightInput(String(ih));
+      setPanelPos({ x: Math.round((img.naturalWidth - iw) / 2), y: Math.round((img.naturalHeight - ih) / 2) });
       setScreen("opt2-workspace");
     };
-    img.src = url;
+    img.src = URL.createObjectURL(file);
+    e.target.value = "";
   };
 
-  const visibleCategories =
-    activeStickerFilter === "all"
-      ? STICKER_CATEGORIES
-      : STICKER_CATEGORIES.filter((c) => c.id === activeStickerFilter);
+  const visibleCategories = activeStickerFilter === "all" ? STICKER_CATEGORIES : STICKER_CATEGORIES.filter((c) => c.id === activeStickerFilter);
+  const stickerHeaderSrc = theme === "grey1200" ? PAGE_ASSETS.stickerHeaderGrey1200 : theme === "white" ? PAGE_ASSETS.stickerHeaderWhite : PAGE_ASSETS.stickerHeaderImagery;
 
-  const stickerHeaderBg =
-    theme === "grey1200"
-      ? pageAssetsAny.stickerSheetGrey1200
-      : theme === "white"
-      ? pageAssetsAny.stickerSheetWhite
-      : pageAssetsAny.stickerSheetImagery;
+  const handleBack = () => {
+    if (screen === "opt1-pre-cover" || screen === "opt2-upload") setScreen("home");
+    else if (screen === "opt1-sticker-cover" || screen === "opt1-bg-select") setScreen("opt1-pre-cover");
+    else if (screen === "opt3-sheet") setScreen("opt1-sticker-cover");
+    else if (screen === "opt1-imagery-select") setScreen("opt1-bg-select");
+    else if (screen === "opt1-workspace") setScreen(theme === "imagery" ? "opt1-imagery-select" : "opt1-bg-select");
+    else if (screen === "opt2-workspace") setScreen("opt2-upload");
+    else setScreen("home");
+  };
 
   return (
-    <main className="min-h-screen w-full bg-[#F1F3F4] flex flex-col items-center justify-start py-4 md:py-6 px-3 md:px-6 font-sans text-[#121317]">
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/png,image/jpeg,image/webp"
-        className="hidden"
-        onChange={handleFileUpload}
-      />
+    <div className="min-h-screen w-full bg-[#F1F3F4] flex flex-col items-center justify-start py-4 md:py-6 px-3 md:px-6 font-sans text-[#121317]">
+      <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={handleFileUpload} />
 
-      {/* Top Navigation Bar */}
-      <div className="w-full max-w-[1200px] flex items-center justify-between mb-2.5 h-8 px-1 sticky top-2 z-30">
-        {screen !== "home" ? (
-          <button
-            onClick={() => {
-              if (screen === "opt1-imagery-select") setScreen("opt1-bg-select");
-              else if (screen === "opt1-workspace")
-                setScreen(theme === "imagery" ? "opt1-imagery-select" : "opt1-bg-select");
-              else if (screen === "opt2-workspace") setScreen("opt2-upload");
-              else if (screen === "opt3-sheet") setScreen("opt3-bg-select");
-              else setScreen("home");
-            }}
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-neutral-700 hover:text-black bg-white/95 backdrop-blur px-3.5 py-1.5 rounded-full border border-neutral-200 shadow-sm transition cursor-pointer"
-          >
-            ← Back
-          </button>
-        ) : (
-          <span />
-        )}
-
-        <div className="flex items-center gap-3">
-          {toastMsg && (
-            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full shadow-sm">
-              ✓ {toastMsg}
-            </span>
-          )}
+      <div className="w-full max-w-[1160px] flex items-center justify-between mb-2.5 h-8 px-1 sticky top-2 z-30">
+        <div className="flex items-center gap-2">
           {screen !== "home" && (
-            <button
-              onClick={() => setScreen("home")}
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-neutral-600 hover:text-black bg-white/90 backdrop-blur px-3.5 py-1.5 rounded-full border border-neutral-200 shadow-sm transition cursor-pointer"
-            >
+            <button type="button" onClick={handleBack} className="text-xs font-medium text-neutral-700 hover:text-black bg-white/95 px-3.5 py-1.5 rounded-full border border-neutral-200 shadow-sm cursor-pointer">
+              ← Back
+            </button>
+          )}
+          {screen === "opt2-workspace" && (
+            <button type="button" onClick={() => fileInputRef.current?.click()} className="text-xs font-medium text-neutral-700 hover:text-black bg-white/95 px-3.5 py-1.5 rounded-full border border-neutral-200 shadow-sm cursor-pointer">
+              Replace image
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-3">
+          {toastMsg && <span className="text-xs font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full shadow-sm">✓ {toastMsg}</span>}
+          {screen !== "home" && (
+            <button type="button" onClick={() => setScreen("home")} className="text-xs font-medium text-neutral-600 hover:text-black bg-white/90 px-3.5 py-1.5 rounded-full border border-neutral-200 shadow-sm cursor-pointer">
               Home
             </button>
           )}
@@ -630,155 +483,119 @@ export default function Page() {
       </div>
 
       {screen !== "opt3-sheet" ? (
-        <div className="relative w-full max-w-[1200px] aspect-[16/9] bg-white rounded-2xl shadow-xl overflow-hidden border border-neutral-200/90 select-none">
-          {/* 1. HOME SCREEN */}
+        <div className="relative w-full max-w-[1160px] aspect-[16/9] bg-white rounded-2xl shadow-xl overflow-hidden border border-neutral-200/90 select-none">
           {screen === "home" && (
-            <>
-              <img
-                src="/synced/home-cover-1795554141.png"
-                alt="Welcome to our glass panel and pill generator"
-                className="w-full h-full object-cover"
-              />
-              <div className="absolute bottom-[8%] left-[8%] right-[8%] h-[22%] grid grid-cols-3 gap-4">
-                <button
-                  onClick={() => setScreen("opt1-bg-select")}
-                  aria-label="Export just a panel to size"
-                  className="rounded-2xl hover:bg-black/[0.03] transition cursor-pointer"
-                />
-                <button
-                  onClick={() => setScreen("opt2-upload")}
-                  aria-label="Export a panel on your background"
-                  className="rounded-2xl hover:bg-black/[0.03] transition cursor-pointer"
-                />
-                <button
-                  onClick={() => setScreen("opt3-bg-select")}
-                  aria-label="Select from our sticker sheet"
-                  className="rounded-2xl hover:bg-black/[0.03] transition cursor-pointer"
-                />
-              </div>
-            </>
+            <div className="relative w-full h-full">
+              <img src={PAGE_ASSETS.home} alt="Cover" className="w-full h-full object-cover pointer-events-none" />
+              <button type="button" aria-label="Export panels for print and design" onClick={() => setScreen("opt2-upload")} className="absolute left-[16.5%] top-[63%] w-[22.5%] h-[23%] rounded-full hover:bg-black/[0.03] cursor-pointer" />
+              <button type="button" aria-label="Export panels for Slides use" onClick={() => setScreen("opt1-pre-cover")} className="absolute left-[39.5%] top-[63%] w-[22.5%] h-[23%] rounded-full hover:bg-black/[0.03] cursor-pointer" />
+            </div>
           )}
 
-          {/* 2. OPTION 1 — BACKGROUND CONTEXT */}
+          {screen === "opt1-pre-cover" && (
+            <div className="relative w-full h-full">
+              <img src={PAGE_ASSETS.slidesPreCover} alt="Export panels for slides" className="w-full h-full object-cover pointer-events-none" />
+              <button type="button" aria-label="Sticker sheets" onClick={() => setScreen("opt1-sticker-cover")} className="absolute left-[29%] top-[64%] w-[20.5%] h-[22%] rounded-full hover:bg-black/[0.03] cursor-pointer" />
+              <button type="button" aria-label="Create panels for slides" onClick={() => setScreen("opt1-bg-select")} className="absolute left-[50.5%] top-[64%] w-[20.5%] h-[22%] rounded-full hover:bg-black/[0.03] cursor-pointer" />
+            </div>
+          )}
+
+          {screen === "opt1-sticker-cover" && (
+            <div className="relative w-full h-full">
+              <img src={PAGE_ASSETS.stickerCover} alt="Sticker sheets" className="w-full h-full object-cover pointer-events-none" />
+              {(["imagery", "grey1200", "white"] as BackgroundTheme[]).map((t, i) => (
+                <button key={t} type="button" onClick={() => { setTheme(t); setActiveStickerFilter("all"); setOpenStickerMenuKey(null); setScreen("opt3-sheet"); }} style={{ left: `${22 + i * 19}%` }} className="absolute top-[60%] w-[18%] h-[21%] rounded-full hover:bg-black/[0.03] cursor-pointer" />
+              ))}
+            </div>
+          )}
+
           {screen === "opt1-bg-select" && (
-            <>
-              <img
-                src={pageAssetsAny.exportJustPanelCover}
-                alt="Export just a panel to size"
-                className="w-full h-full object-cover"
-              />
-              <div className="absolute bottom-[8%] left-[12%] right-[12%] h-[22%] grid grid-cols-3 gap-6">
-                <button
-                  onClick={() => {
-                    selectThemeAndDefaultOpacity("imagery");
-                    setScreen("opt1-imagery-select");
-                  }}
-                  aria-label="Full bleed image"
-                  className="rounded-2xl hover:bg-black/[0.03] transition cursor-pointer"
-                />
-                <button
-                  onClick={() => {
-                    selectThemeAndDefaultOpacity("grey1200");
-                    setFormat("1:1");
-                    setScreen("opt1-workspace");
-                  }}
-                  aria-label="Grey 1200"
-                  className="rounded-2xl hover:bg-black/[0.03] transition cursor-pointer"
-                />
-                <button
-                  onClick={() => {
-                    selectThemeAndDefaultOpacity("white");
-                    setFormat("1:1");
-                    setScreen("opt1-workspace");
-                  }}
-                  aria-label="White"
-                  className="rounded-2xl hover:bg-black/[0.03] transition cursor-pointer"
-                />
-              </div>
-            </>
+            <div className="relative w-full h-full">
+              <img src={PAGE_ASSETS.slidesBgSelect} alt="Create panels for slides" className="w-full h-full object-cover pointer-events-none" />
+              <button type="button" onClick={() => { setTheme("imagery"); setOpacitySlider(50); setScreen("opt1-imagery-select"); }} className="absolute left-[22%] top-[63%] w-[18%] h-[21%] rounded-full hover:bg-black/[0.03] cursor-pointer" />
+              <button type="button" onClick={() => { setTheme("grey1200"); setOpacitySlider(50); setFormat("1:1"); setScreen("opt1-workspace"); }} className="absolute left-[41%] top-[63%] w-[18%] h-[21%] rounded-full hover:bg-black/[0.03] cursor-pointer" />
+              <button type="button" onClick={() => { setTheme("white"); setOpacitySlider(50); setFormat("1:1"); setScreen("opt1-workspace"); }} className="absolute left-[60%] top-[63%] w-[18%] h-[21%] rounded-full hover:bg-black/[0.03] cursor-pointer" />
+            </div>
           )}
 
-          {/* 3. OPTION 1 — FULL BLEED 4-IMAGE PICKER */}
           {screen === "opt1-imagery-select" && (
-            <>
-              <img
-                src={pageAssetsAny.fullBleedImageCover}
-                alt="Select an example background"
-                className="w-full h-full object-cover"
-              />
-              <div className="absolute bottom-[8%] left-[5%] right-[5%] h-[45%] grid grid-cols-4 gap-4">
-                {[1, 4, 3, 2].map((optNum) => (
-                  <button
-                    key={optNum}
-                    onClick={() => {
-                      setImageryOption(optNum);
-                      selectThemeAndDefaultOpacity("imagery");
-                      setFormat("1:1");
-                      setScreen("opt1-workspace");
-                    }}
-                    aria-label={`Image option ${optNum}`}
-                    className="rounded-xl hover:ring-4 hover:ring-blue-500/60 transition cursor-pointer"
-                  />
-                ))}
-              </div>
-            </>
+            <div className="relative w-full h-full">
+              <img src={PAGE_ASSETS.fullBleedPicker} alt="Select example background" className="w-full h-full object-cover pointer-events-none" />
+              {[0, 1, 2, 3].map((idx) => (
+                <button key={idx} type="button" onClick={() => { setImageryIndex(idx); setTheme("imagery"); setOpacitySlider(50); setFormat("1:1"); setScreen("opt1-workspace"); }} style={{ left: `${4.5 + idx * 23}%` }} className="absolute top-[42%] w-[22%] h-[44%] rounded-lg hover:ring-4 hover:ring-blue-500/50 cursor-pointer" />
+              ))}
+            </div>
           )}
 
-          {/* 4. OPTION 2 — UPLOAD COVER */}
           {screen === "opt2-upload" && (
-            <>
-              <img
-                src={pageAssetsAny.exportOnBgCover}
-                alt="Export a panel on your background"
-                className="w-full h-full object-cover"
-              />
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                aria-label="Upload now"
-                className="absolute bottom-[8%] left-[32%] right-[32%] h-[20%] rounded-full hover:bg-black/[0.03] transition cursor-pointer"
-              />
-            </>
+            <div className="relative w-full h-full">
+              <img src={PAGE_ASSETS.bgUploadCover} alt="Export a panel on your background" className="w-full h-full object-cover pointer-events-none" />
+              <button type="button" onClick={() => fileInputRef.current?.click()} className="absolute left-[37%] top-[64%] w-[26%] h-[22%] rounded-full hover:bg-black/[0.03] cursor-pointer" />
+            </div>
           )}
 
-          {/* 5. WORKSPACE — OPTION 1 & OPTION 2 (ALIGNED AT 960px = 50% LEFT EDGE) */}
           {(screen === "opt1-workspace" || screen === "opt2-workspace") && (
-            <>
-              <img
-                src={
-                  screen === "opt1-workspace"
-                    ? pageAssetsAny.exportJustPanelInternal
-                    : pageAssetsAny.exportOnBgInternal
-                }
-                alt="Workspace"
-                className="w-full h-full object-cover"
-              />
+            <div className="relative w-full h-full">
+              <img src={screen === "opt1-workspace" ? PAGE_ASSETS.slidesWorkspace : PAGE_ASSETS.bgWorkspace} alt="Workspace" className="w-full h-full object-cover pointer-events-none" />
 
-              {/* Left Interactive Canvas Stage */}
-              <div className="absolute left-[4.5%] w-[43%] top-[18%] bottom-[8%] flex items-center justify-center overflow-hidden">
+              <div className="absolute z-10 left-[4.5%] w-[42.5%] top-[18%] bottom-[8%] flex items-center justify-center overflow-hidden">
                 <canvas
                   ref={previewCanvasRef}
                   onPointerDown={handlePointerDown}
                   onPointerMove={handlePointerMove}
                   onPointerUp={handlePointerUp}
-                  className={`max-w-full max-h-full object-contain shadow-sm ${
-                    hasValidSize ? "cursor-grab active:cursor-grabbing" : "cursor-default"
-                  }`}
+                  onWheel={(e) => {
+                    if (screen !== "opt2-workspace") return;
+                    e.preventDefault();
+                    setBgZoom((p) => Math.max(20, Math.min(300, p + (e.deltaY < 0 ? 5 : -5))));
+                  }}
+                  className="max-w-full max-h-full object-contain shadow-sm cursor-grab active:cursor-grabbing touch-none"
                 />
               </div>
 
-              {/* Lower-Right Controls Aligned to 960px (50% of 1920px Canvas) */}
-              <div className="absolute left-[50%] right-[6%] top-[62.5%] bottom-[4%] flex flex-col justify-start gap-1.5 lg:gap-2 select-auto">
-                <div className="flex flex-wrap items-end gap-3">
+              <div className="absolute z-10 left-[50%] right-[4.5%] top-[58.5%] bottom-[2.5%] flex flex-col justify-start gap-1 lg:gap-1.5 overflow-y-auto pr-1">
+                {screen === "opt2-workspace" && (
+                  <div className="flex flex-wrap items-end gap-2.5">
+                    <div className="flex flex-col gap-0.5">
+                      <label className="text-[10px] font-semibold text-neutral-800 leading-tight">Image resize</label>
+                      <select value={resizeMode} onChange={(e) => applyResizeMode(e.target.value as ResizeMode)} className="h-6 lg:h-7 px-2 text-[11px] font-medium bg-white border border-neutral-800 rounded-md">
+                        <option value="none">No resize</option>
+                        <option value="1:1">1:1 (1080x1080)</option>
+                        <option value="4:5">4:5 (1080x1350)</option>
+                        <option value="9:16">9:16 (1080x1920)</option>
+                        <option value="16:9">16:9 (1920x1080)</option>
+                        <option value="custom">Custom</option>
+                      </select>
+                    </div>
+
+                    {resizeMode === "custom" && (
+                      <div className="flex items-center gap-1.5 text-[10.5px] font-medium">
+                        <input type="number" min={64} max={6000} value={customCanvasWInput} onChange={(e) => setCustomCanvasWInput(e.target.value)} className="w-[62px] h-6 lg:h-7 px-1.5 text-[11px] bg-white border border-neutral-800 rounded-md" />
+                        <span>px wide x</span>
+                        <input type="number" min={64} max={6000} value={customCanvasHInput} onChange={(e) => setCustomCanvasHInput(e.target.value)} className="w-[62px] h-6 lg:h-7 px-1.5 text-[11px] bg-white border border-neutral-800 rounded-md" />
+                        <span>px high</span>
+                      </div>
+                    )}
+
+                    <div className="flex flex-col gap-0.5 min-w-[125px]">
+                      <div className="flex items-center justify-between text-[10px]">
+                        <span className="font-semibold text-neutral-800 leading-tight">Image scale ({bgZoom}%)</span>
+                        {(bgZoom !== 100 || bgPan.x !== 0 || bgPan.y !== 0) && (
+                          <button type="button" onClick={() => { setBgZoom(100); setBgPan({ x: 0, y: 0 }); }} className="text-[10px] underline text-neutral-600 hover:text-black cursor-pointer">
+                            Reset
+                          </button>
+                        )}
+                      </div>
+                      <input type="range" min={20} max={300} value={bgZoom} onChange={(e) => setBgZoom(Number(e.target.value))} className="w-full accent-neutral-900 cursor-pointer h-1.5 bg-neutral-300 rounded-lg" />
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap items-end gap-2.5">
                   {screen === "opt1-workspace" && (
                     <div className="flex flex-col gap-0.5">
-                      <label className="text-[10px] font-semibold text-neutral-800 leading-tight">
-                        Format
-                      </label>
-                      <select
-                        value={format}
-                        onChange={(e) => setFormat(e.target.value as FormatRatio)}
-                        className="h-7 px-2 text-[11px] font-medium bg-white border border-neutral-800 rounded-md focus:outline-none"
-                      >
+                      <label className="text-[10px] font-semibold text-neutral-800 leading-tight">Format</label>
+                      <select value={format} onChange={(e) => setFormat(e.target.value as FormatRatio)} className="h-6 lg:h-7 px-2 text-[11px] font-medium bg-white border border-neutral-800 rounded-md">
                         <option value="1:1">1:1</option>
                         <option value="4:5">4:5</option>
                         <option value="9:16">9:16</option>
@@ -788,20 +605,16 @@ export default function Page() {
                   )}
 
                   <div className="flex flex-col gap-0.5">
-                    <label className="text-[10px] font-semibold text-neutral-800 leading-tight">
-                      Shape
-                    </label>
+                    <label className="text-[10px] font-semibold text-neutral-800 leading-tight">Shape</label>
                     <select
                       value={shape}
                       onChange={(e) => {
                         const next = e.target.value as PanelShape;
                         setShape(next);
                         if (next === "circle") setHeightInput(widthInput);
-                        else if (next === "cta-pill" && parseInt(heightInput, 10) > 140) {
-                          setHeightInput("84");
-                        }
+                        else if (next === "cta-pill" && parseInt(heightInput, 10) > 140) setHeightInput("84");
                       }}
-                      className="h-7 px-2 text-[11px] font-medium bg-white border border-neutral-800 rounded-md focus:outline-none"
+                      className="h-6 lg:h-7 px-2 text-[11px] font-medium bg-white border border-neutral-800 rounded-md"
                     >
                       <option value="text-panel">Text panel</option>
                       <option value="circle">Circle</option>
@@ -811,16 +624,8 @@ export default function Page() {
 
                   {screen === "opt2-workspace" && (
                     <div className="flex flex-col gap-0.5">
-                      <label className="text-[10px] font-semibold text-neutral-800 leading-tight">
-                        Rim calibration
-                      </label>
-                      <select
-                        value={theme}
-                        onChange={(e) =>
-                          selectThemeAndDefaultOpacity(e.target.value as BackgroundTheme)
-                        }
-                        className="h-7 px-2 text-[11px] font-medium bg-white border border-neutral-800 rounded-md focus:outline-none"
-                      >
+                      <label className="text-[10px] font-semibold text-neutral-800 leading-tight">Rim calibration</label>
+                      <select value={theme} onChange={(e) => setTheme(e.target.value as BackgroundTheme)} className="h-6 lg:h-7 px-2 text-[11px] font-medium bg-white border border-neutral-800 rounded-md">
                         <option value="imagery">Full bleed image</option>
                         <option value="grey1200">Grey 1200</option>
                         <option value="white">White</option>
@@ -830,32 +635,13 @@ export default function Page() {
                 </div>
 
                 <div className="flex flex-col gap-0.5">
-                  <label className="text-[10px] font-semibold text-neutral-800 leading-tight">
-                    Size
-                  </label>
+                  <label className="text-[10px] font-semibold text-neutral-800 leading-tight">Size</label>
                   <div className="flex items-center gap-2 text-[11px] font-medium">
-                    <input
-                      type="number"
-                      min={24}
-                      max={4000}
-                      value={widthInput}
-                      onChange={(e) => {
-                        setWidthInput(e.target.value);
-                        if (shape === "circle") setHeightInput(e.target.value);
-                      }}
-                      className="w-[72px] h-7 px-2 text-[11px] bg-white border border-neutral-800 rounded-md focus:outline-none"
-                    />
+                    <input type="number" min={24} max={4000} value={widthInput} onChange={(e) => { setWidthInput(e.target.value); if (shape === "circle") setHeightInput(e.target.value); }} className="w-[68px] h-6 lg:h-7 px-2 text-[11px] bg-white border border-neutral-800 rounded-md" />
                     <span>{shape === "circle" ? "px diameter" : "px wide x"}</span>
                     {shape !== "circle" && (
                       <>
-                        <input
-                          type="number"
-                          min={24}
-                          max={4000}
-                          value={heightInput}
-                          onChange={(e) => setHeightInput(e.target.value)}
-                          className="w-[72px] h-7 px-2 text-[11px] bg-white border border-neutral-800 rounded-md focus:outline-none"
-                        />
+                        <input type="number" min={24} max={4000} value={heightInput} onChange={(e) => setHeightInput(e.target.value)} className="w-[68px] h-6 lg:h-7 px-2 text-[11px] bg-white border border-neutral-800 rounded-md" />
                         <span>px high</span>
                       </>
                     )}
@@ -864,101 +650,32 @@ export default function Page() {
 
                 <div className="flex flex-col gap-0.5 max-w-[260px]">
                   <div className="flex items-center justify-between">
-                    <label className="text-[10px] font-semibold text-neutral-800 leading-tight">
-                      Opacity
-                    </label>
-                    <span className="text-[10px] text-neutral-500 leading-tight">
-                      {opacitySlider}%
-                    </span>
+                    <label className="text-[10px] font-semibold text-neutral-800 leading-tight">Opacity</label>
+                    <span className="text-[10px] text-neutral-500 leading-tight">{opacitySlider}%</span>
                   </div>
-                  <input
-                    type="range"
-                    min={0}
-                    max={theme === "white" ? 100 : 100}
-                    value={opacitySlider}
-                    onChange={(e) => setOpacitySlider(Number(e.target.value))}
-                    className="w-full accent-neutral-900 cursor-pointer h-1.5 bg-neutral-300 rounded-lg"
-                  />
+                  <input type="range" min={0} max={100} value={opacitySlider} onChange={(e) => setOpacitySlider(Number(e.target.value))} className="w-full accent-neutral-900 cursor-pointer h-1.5 bg-neutral-300 rounded-lg" />
                 </div>
 
-                <div className="pt-1 flex flex-wrap items-center gap-2 max-w-[340px]">
-                  <button
-                    onClick={handleExportPng}
-                    disabled={!hasValidSize}
-                    className="px-4 py-1 rounded-full border-[1.5px] border-neutral-900 bg-white hover:bg-neutral-900 hover:text-white disabled:opacity-40 text-[11px] font-semibold transition cursor-pointer"
-                  >
+                <div className="pt-0.5 flex flex-wrap items-center gap-2">
+                  <button type="button" onClick={handleExportPng} disabled={!hasValidSize} className="px-4 py-1 rounded-full border-[1.5px] border-neutral-900 bg-white hover:bg-neutral-900 hover:text-white disabled:opacity-40 text-[11px] font-semibold transition cursor-pointer">
                     Export .png
                   </button>
-                  <button
-                    onClick={handleExportSvg}
-                    disabled={!hasValidSize}
-                    className="px-4 py-1 rounded-full border-[1.5px] border-neutral-900 bg-white hover:bg-neutral-900 hover:text-white disabled:opacity-40 text-[11px] font-semibold transition cursor-pointer"
-                  >
+                  <button type="button" onClick={handleExportSvg} disabled={!hasValidSize} className="px-4 py-1 rounded-full border-[1.5px] border-neutral-900 bg-white hover:bg-neutral-900 hover:text-white disabled:opacity-40 text-[11px] font-semibold transition cursor-pointer">
                     Export .svg
                   </button>
                 </div>
               </div>
-            </>
-          )}
-
-          {/* 6. OPTION 3 — STICKER SHEET COVER */}
-          {screen === "opt3-bg-select" && (
-            <>
-              <img
-                src={pageAssetsAny.stickerSheetCover}
-                alt="Sticker sheet"
-                className="w-full h-full object-cover"
-              />
-              <div className="absolute bottom-[8%] left-[12%] right-[12%] h-[22%] grid grid-cols-3 gap-6">
-                <button
-                  onClick={() => {
-                    selectThemeAndDefaultOpacity("imagery");
-                    setActiveStickerFilter("all");
-                    setOpenStickerMenuKey(null);
-                    setScreen("opt3-sheet");
-                  }}
-                  aria-label="Full bleed image"
-                  className="rounded-2xl hover:bg-black/[0.03] transition cursor-pointer"
-                />
-                <button
-                  onClick={() => {
-                    selectThemeAndDefaultOpacity("grey1200");
-                    setActiveStickerFilter("all");
-                    setOpenStickerMenuKey(null);
-                    setScreen("opt3-sheet");
-                  }}
-                  aria-label="Grey 1200"
-                  className="rounded-2xl hover:bg-black/[0.03] transition cursor-pointer"
-                />
-                <button
-                  onClick={() => {
-                    selectThemeAndDefaultOpacity("white");
-                    setActiveStickerFilter("all");
-                    setOpenStickerMenuKey(null);
-                    setScreen("opt3-sheet");
-                  }}
-                  aria-label="White"
-                  className="rounded-2xl hover:bg-black/[0.03] transition cursor-pointer"
-                />
-              </div>
-            </>
+            </div>
           )}
         </div>
       ) : (
-        /* 7. OPTION 3 — SCROLLING 80-ASSET STICKER SHEET */
-        <div className="relative w-full max-w-[1200px] bg-white rounded-2xl shadow-xl overflow-hidden border border-neutral-200/90 flex flex-col">
-          {stickerHeaderBg && (
-            <div className="w-full aspect-[16/4.3] overflow-hidden bg-white">
-              <img
-                src={stickerHeaderBg}
-                alt="Sticker sheet header"
-                className="w-full h-full object-cover object-top"
-              />
+        <div className="relative w-full max-w-[1160px] bg-white rounded-2xl shadow-xl overflow-hidden border border-neutral-200/90 flex flex-col">
+          {stickerHeaderSrc && (
+            <div className="w-full bg-white">
+              <img src={stickerHeaderSrc} alt="Sticker Sheet Header" className="w-full h-auto object-contain pointer-events-none" />
             </div>
           )}
-
-          {/* Clean Centered Category Filter Bar */}
-          <div className="w-full px-6 py-3 bg-white border-b border-neutral-200 flex flex-wrap items-center justify-center gap-2">
+          <div className="w-full bg-white px-6 sm:px-10 pb-4 pt-2 flex flex-wrap items-center justify-end gap-2">
             {[
               { id: "all", label: "All (80)" },
               { id: "squares", label: "Squares (20)" },
@@ -967,32 +684,13 @@ export default function Page() {
               { id: "pills", label: "CTA Pills (10)" },
               { id: "circles", label: "Circles (10)" },
             ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => {
-                  setActiveStickerFilter(tab.id);
-                  setOpenStickerMenuKey(null);
-                }}
-                className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition cursor-pointer border ${
-                  activeStickerFilter === tab.id
-                    ? "bg-[#121317] text-white border-[#121317]"
-                    : "bg-white text-neutral-700 border-neutral-300 hover:border-neutral-900"
-                }`}
-              >
+              <button key={tab.id} type="button" onClick={() => { setActiveStickerFilter(tab.id); setOpenStickerMenuKey(null); }} className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition cursor-pointer border ${activeStickerFilter === tab.id ? "bg-[#121317] text-white border-[#121317]" : "bg-white text-neutral-700 border-neutral-300 hover:border-neutral-900"}`}>
                 {tab.label}
               </button>
             ))}
           </div>
 
-          <div
-            className={`w-full px-6 sm:px-10 py-10 space-y-12 ${
-              theme === "grey1200"
-                ? "bg-[#121317] text-white"
-                : theme === "white"
-                ? "bg-[#F8F9FA] text-[#121317]"
-                : "bg-[#1E272C] text-white"
-            }`}
-          >
+          <div className={`w-full px-6 sm:px-10 py-10 space-y-12 ${theme === "grey1200" ? "bg-[#121317] text-white" : theme === "white" ? "bg-[#F8F9FA] text-[#121317] border-t border-neutral-200" : "bg-[#1E272C] text-white"}`}>
             {visibleCategories.map((cat) => (
               <section key={cat.id} className="space-y-4">
                 <div className="flex items-baseline justify-between border-b pb-2 border-current/15">
@@ -1010,15 +708,9 @@ export default function Page() {
                         shape={cat.shape}
                         theme={theme}
                         isOpen={openStickerMenuKey === itemKey}
-                        onToggleMenu={(nextOpen) =>
-                          setOpenStickerMenuKey(nextOpen ? itemKey : null)
-                        }
-                        onExportPng={(canvas, sizeStr, sh) =>
-                          downloadCanvas(canvas, `sticker-${sh}-${theme}-${sizeStr}.png`)
-                        }
-                        onExportSvg={(svgStr, sizeStr, sh) =>
-                          downloadSvg(svgStr, `sticker-${sh}-${theme}-${sizeStr}.svg`)
-                        }
+                        onToggleMenu={(nextOpen) => setOpenStickerMenuKey(nextOpen ? itemKey : null)}
+                        onExportPng={(c, s, sh) => downloadCanvas(c, `sticker-${sh}-${theme}-${s}.png`)}
+                        onExportSvg={(svg, s, sh) => downloadSvg(svg, `sticker-${sh}-${theme}-${s}.svg`)}
                       />
                     );
                   })}
@@ -1028,6 +720,6 @@ export default function Page() {
           </div>
         </div>
       )}
-    </main>
+    </div>
   );
 }
