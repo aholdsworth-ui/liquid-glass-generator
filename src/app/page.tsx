@@ -266,7 +266,7 @@ export default function Page() {
   const [shape, setShape] = useState<PanelShape>("text-panel");
   const [widthInput, setWidthInput] = useState("420");
   const [heightInput, setHeightInput] = useState("180");
-  const [opacitySlider, setOpacitySlider] = useState(35);
+  const [opacitySlider, setOpacitySlider] = useState(50);
   const [activeStickerFilter, setActiveStickerFilter] = useState("all");
   const [openStickerMenuKey, setOpenStickerMenuKey] = useState<string | null>(null);
 
@@ -292,7 +292,7 @@ export default function Page() {
 
   const selectThemeAndDefaultOpacity = (nextTheme: BackgroundTheme) => {
     setTheme(nextTheme);
-    setOpacitySlider(LOCKED_THEME_OPACITY[nextTheme]);
+    setOpacitySlider(50);
   };
 
   useEffect(() => {
