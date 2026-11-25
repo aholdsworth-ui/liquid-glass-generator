@@ -1,144 +1,131 @@
+export interface ZoneRect { left: number; top: number; width: number; height: number; }
+export const GFS_MOMENTUM_DRIVE_URL = "https://drive.google.com/corp/drive/folders/1M1OORV7B5g5e-TGADNOJTaPDynvCoWAK";
 export const PAGE_ASSETS = {
-  "home": "/assets/glass-panel-app_16_9-cover.png?v=1795641205",
-  "slidesPreCover": "/assets/glass-panel-app_16_9-export-just-a-panel-pre-cover.png?v=1795641205",
-  "slidesBgSelect": "/assets/glass-panel-app_16_9-export-just-a-panel-cover.png?v=1795641205",
-  "fullBleedPicker": "/assets/glass-panel-app_16_9-full-bleed-image-cover.png?v=1795641205",
-  "slidesWorkspace": "/assets/glass-panel-app_16_9-export-just-a-panel-internal-page.png?v=1795641205",
-  "bgUploadCover": "/assets/glass-panel-app_16_9-export-a-panel-on-your-background-cover.png?v=1795641205",
-  "bgWorkspace": "/assets/glass-panel-app_16_9-export-on-a-background-internal-page.png?v=1795641205",
-  "stickerCover": "/assets/glass-panel-app_16_9-sticker-sheet-cover.png?v=1795641205",
-  "stickerHeaderImagery": "/assets/glass-panel-app_16_9-sticker-sheet-internal-imagery.png?v=1795641205",
-  "stickerHeaderGrey1200": "/assets/glass-panel-app_16_9-sticker-sheet-internal-grey-1200.png?v=1795641205",
-  "stickerHeaderWhite": "/assets/glass-panel-app_16_9-sticker-sheet-internal-white.png?v=1795641205"
+  "home": "/assets/glass-panel-app_16_9-cover.png?v=1795643985",
+  "slidesPreCover": "/assets/glass-panel-app_16_9-export-just-a-panel-pre-cover.png?v=1795643985",
+  "slidesCreateCover": "/assets/glass-panel-app_16_9-export-just-a-panel-cover.png?v=1795643985",
+  "slidesFullBleedCover": "/assets/glass-panel-app_16_9-full-bleed-image-cover.png?v=1795643985",
+  "slidesInternal": "/assets/glass-panel-app_16_9-export-just-a-panel-internal-page.png?v=1795643985",
+  "stickerCover": "/assets/glass-panel-app_16_9-sticker-sheet-cover.png?v=1795643985",
+  "stickerImagery": "/assets/glass-panel-app_16_9-sticker-sheet-internal-imagery.png?v=1795643985",
+  "stickerGrey1200": "/assets/glass-panel-app_16_9-sticker-sheet-internal-grey-1200.png?v=1795643985",
+  "stickerWhite": "/assets/glass-panel-app_16_9-sticker-sheet-internal-white.png?v=1795643985",
+  "bgUploadCover": "/assets/glass-panel-app_16_9-export-a-panel-on-your-background-cover.png?v=1795643985",
+  "bgInternal": "/assets/glass-panel-app_16_9-export-on-a-background-internal-page.png?v=1795643985"
 } as const;
-export const BG_ASSETS = {
-  "imagery": [
-    "/assets/3._background_imagery_3a._1_1_glass_panel_app_1_1_image_option_1.png?v=1795641205",
-    "/assets/3._background_imagery_3a._1_1_glass_panel_app_1_1_image_option_4.png?v=1795641205",
-    "/assets/3._background_imagery_3b._4_5_glass_panel_app_4_5_image_option_3.png?v=1795641205",
-    "/assets/3._background_imagery_3b._4_5_glass_panel_app_4_5_image_option_2.png?v=1795641205"
-  ],
-  "grey1200": {
-    "1:1": "/assets/glass-panel-app_1_1-grey-1200.png?v=1795641205",
-    "4:5": "/assets/glass-panel-app_4_5-grey-1200.png?v=1795641205",
-    "9:16": "/assets/glass-panel-app_9_16-grey-1200.png?v=1795641205",
-    "16:9": "/assets/glass-panel-app_16_9-grey-1200.png?v=1795641205"
-  },
-  "white": {
-    "1:1": "/assets/glass-panel-app_1_1-white.png?v=1795641205",
-    "4:5": "/assets/glass-panel-app_4_5-white.png?v=1795641205",
-    "9:16": "/assets/glass-panel-app_9_16-white.png?v=1795641205",
-    "16:9": "/assets/glass-panel-app_16_9-white.png?v=1795641205"
-  }
-} as const;
-export const BUTTON_ZONES: Record<string, [number, number, number, number][]> = {
+export const BG_ASSETS = { imageryExamples: [
+  "/assets/3._background_imagery_3a._1_1_glass_panel_app_1_1_image_option_1.png?v=1795643985",
+  "/assets/glass-panel-app-16-9-image-option-4.png?v=1795643985",
+  "/assets/glass-panel-app-16-9-image-option-3.png?v=1795643985",
+  "/assets/glass-panel-app-1-1-image-option-2.png?v=1795643985"
+], grey1200: "/assets/glass-panel-app_9_16-grey-1200.png?v=1795643985", white: "/assets/glass-panel-app_9_16-white.png?v=1795643985" } as const;
+export const BUTTON_ZONES: Record<string, ZoneRect[]> = {
   "home": [
-    [
-      24.96,
-      72.06,
-      22.27,
-      13.48
-    ],
-    [
-      54.21,
-      72.06,
-      19.5,
-      13.48
-    ]
+    {
+      "left": 25.71,
+      "top": 72.56,
+      "width": 20.82,
+      "height": 12.57
+    },
+    {
+      "left": 54.88,
+      "top": 72.56,
+      "width": 18.11,
+      "height": 12.57
+    }
   ],
   "slidesPreCover": [
-    [
-      26.21,
-      62.43,
-      19.77,
-      22.0
-    ],
-    [
-      54.12,
-      62.43,
-      19.56,
-      23.67
-    ]
+    {
+      "left": 26.91,
+      "top": 62.93,
+      "width": 18.32,
+      "height": 21.19
+    },
+    {
+      "left": 54.82,
+      "top": 62.93,
+      "width": 18.22,
+      "height": 22.76
+    }
   ],
-  "bgUploadCover": [
-    [
-      25.64,
-      62.43,
-      25.5,
-      24.96
-    ],
-    [
-      46.31,
-      62.43,
-      30.4,
-      24.22
-    ]
+  "slidesCreateCover": [
+    {
+      "left": 11.28,
+      "top": 75.84,
+      "width": 21.81,
+      "height": 9.8
+    },
+    {
+      "left": 29.04,
+      "top": 60.98,
+      "width": 40.15,
+      "height": 24.33
+    },
+    {
+      "left": 69.61,
+      "top": 75.47,
+      "width": 16.5,
+      "height": 9.8
+    }
   ],
   "stickerCover": [
-    [
-      10.58,
-      52.43,
-      31.33,
-      25.89
-    ],
-    [
-      33.97,
-      52.24,
-      31.65,
-      26.07
-    ],
-    [
-      58.4,
-      52.24,
-      25.92,
-      25.33
-    ]
+    {
+      "left": 24,
+      "top": 72.0,
+      "width": 20.0,
+      "height": 11.0
+    },
+    {
+      "left": 48,
+      "top": 72.0,
+      "width": 20.0,
+      "height": 11.0
+    },
+    {
+      "left": 72,
+      "top": 72.0,
+      "width": 20.0,
+      "height": 11.0
+    }
   ],
-  "slidesBgSelect": [
-    [
-      10.58,
-      74.99,
-      23.21,
-      11.5
-    ],
-    [
-      35.95,
-      62.43,
-      22.27,
-      23.3
-    ],
-    [
-      68.11,
-      74.62,
-      19.5,
-      11.5
-    ]
+  "bgUploadCover": [
+    {
+      "left": 26.39,
+      "top": 62.93,
+      "width": 16.71,
+      "height": 24.06
+    },
+    {
+      "left": 54.67,
+      "top": 62.93,
+      "width": 21.4,
+      "height": 23.41
+    }
   ],
-  "fullBleedPicker": [
-    [
-      5.0,
-      50.8,
-      22.0,
-      41.1
-    ],
-    [
-      27.85,
-      50.8,
-      22.0,
-      41.1
-    ],
-    [
-      50.65,
-      50.8,
-      22.0,
-      41.1
-    ],
-    [
-      73.45,
-      50.8,
-      22.0,
-      41.1
-    ]
+  "fullBleedPhotos": [
+    {
+      "left": 7.5,
+      "top": 45.0,
+      "width": 20.5,
+      "height": 36.0
+    },
+    {
+      "left": 29.0,
+      "top": 45.0,
+      "width": 20.5,
+      "height": 36.0
+    },
+    {
+      "left": 50.5,
+      "top": 45.0,
+      "width": 20.5,
+      "height": 36.0
+    },
+    {
+      "left": 72.0,
+      "top": 45.0,
+      "width": 20.5,
+      "height": 36.0
+    }
   ]
 };
-export const MOMENTUM_DRIVE_URL = "https://drive.google.com/corp/drive/folders/1M1OORV7B5g5e-TGADNOJTaPDynvCoWAK";

@@ -1,118 +1,93 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
-import { PAGE_ASSETS, BG_ASSETS, BUTTON_ZONES, MOMENTUM_DRIVE_URL } from "@/lib/assetPaths";
-import {
-  PanelShape, BackgroundTheme, FormatRatio, ResolvedPanel, BgTransform,
-  FORMAT_DIMENSIONS, LOCKED_STICKER_OPACITY, STICKER_CATEGORIES,
-  renderStandaloneGlassPanel, generateStandaloneGlassSvg,
-  getMediaDrawRect, drawCompositedStageFrame, generateCompositedMultiGlassSvg,
-} from "@/lib/liquidGlassEngine";
-import { MotionController, loadMotionFile, exportMotionMp4, exportMotionGif } from "@/lib/motionExporter";
+import React, { useState, useEffect, useRef } from "react";
+import { ArrowLeft, RotateCcw, Download, Check, Upload, ExternalLink, X } from "lucide-react";
+import { PAGE_ASSETS, BG_ASSETS, BUTTON_ZONES, GFS_MOMENTUM_DRIVE_URL, ZoneRect } from "@/lib/assetPaths";
+import { PanelShape, BackgroundTheme, STICKER_CATEGORIES, renderStandaloneGlassPanel, generateStandaloneGlassSvg, renderRefractedGlassPatch } from "@/lib/liquidGlassEngine";
+import { LoadedMedia, PanelInstance, loadUniversalMediaFile, getMediaFrameAt, renderFrameWithPanels, exportMultiPanelSvg, exportCompositedMp4 } from "@/lib/mediaSupport";
+import { exportCompositedGif } from "@/lib/gifStudioEncoder";
 
-type ScreenId = "home" | "slides-pre" | "sticker-bg-select" | "sticker-sheet" | "slides-bg-select" | "full-bleed-picker" | "slides-workspace" | "bg-upload" | "bg-workspace";
-type ResizeOption = "no-resize" | "1:1" | "4:5" | "9:16" | "16:9" | "custom";
+type ScreenId = "home" | "slides-pre" | "slides-create-cover" | "slides-fullbleed" | "slides-workspace" | "sticker-cover" | "sticker-sheet" | "bg-upload-cover" | "bg-workspace";
+type ResizePreset = "no-resize" | "1:1" | "4:5" | "9:16" | "16:9" | "custom";
 
-interface PanelState {
-  id: string;
-  shape: PanelShape;
-  theme: BackgroundTheme;
-  wIn: string;
-  hIn: string;
-  x: number;
-  y: number;
-}
+const FORMAT_PRESETS: Record<string, { width: number; height: number }> = {
+  "1:1": { width: 1080, height: 1080 },
+  "4:5": { width: 1080, height: 1350 },
+  "9:16": { width: 1080, height: 1920 },
+  "16:9": { width: 1920, height: 1080 },
+};
 
-function ZoneBtn({ z, label, onClick, href }: { z: [number, number, number, number]; label: string; onClick?: () => void; href?: string }) {
-  const style: React.CSSProperties = { left: `${z[0]}%`, top: `${z[1]}%`, width: `${z[2]}%`, height: `${z[3]}%` };
-  if (href) {
-    return <a href={href} target="_blank" rel="noopener noreferrer" aria-label={label} style={style} className="absolute z-20 cursor-pointer bg-transparent rounded-full" />;
-  }
-  return <button type="button" aria-label={label} onClick={onClick} style={style} className="absolute z-20 cursor-pointer bg-transparent rounded-full focus:outline-none" />;
-}
-
-function StickerCard({ width, height, shape, theme, isOpen, onToggle, onPng, onSvg }: {
-  width: number; height: number; shape: PanelShape; theme: BackgroundTheme;
-  isOpen: boolean; onToggle: (v: boolean) => void;
-  onPng: (c: HTMLCanvasElement, sz: string, sh: PanelShape) => void;
-  onSvg: (s: string, sz: string, sh: PanelShape) => void;
-}) {
-  const [url, setUrl] = useState("");
-  const ref = useRef<HTMLDivElement>(null);
-  const op = LOCKED_STICKER_OPACITY / 100;
-
-  useEffect(() => {
-    setUrl("");
-    const el = ref.current;
-    if (!el) return;
-    let dead = false;
-    const obs = new IntersectionObserver((es) => {
-      if (es[0]?.isIntersecting && !dead) {
-        obs.disconnect();
-        const sc = Math.min(1, 220 / Math.max(width, height));
-        const c = renderStandaloneGlassPanel({ width: Math.max(20, Math.round(width * sc)), height: Math.max(20, Math.round(height * sc)), shape, theme, frostOpacity: op, customRadius: Math.max(4, 20 * sc) });
-        if (!dead) setUrl(c.toDataURL("image/png"));
-      }
-    }, { rootMargin: "220px" });
-    obs.observe(el);
-    return () => { dead = true; obs.disconnect(); };
-  }, [width, height, shape, theme, op]);
-
-  return (
-    <div
-      ref={ref}
-      onClick={(e) => { e.stopPropagation(); onToggle(!isOpen); }}
-      className={`relative group flex flex-col items-end justify-between gap-2 p-3.5 rounded-xl border transition cursor-pointer w-full ${
-        theme === "white" ? "border-neutral-200/80 hover:border-neutral-400 bg-white" : "border-white/10 hover:border-white/25 bg-white/[0.02] hover:bg-white/[0.06]"
-      } ${isOpen ? "ring-2 ring-blue-500/70" : ""}`}
-    >
-      <div className="relative w-full h-28 flex items-center justify-center overflow-hidden p-1">
-        {url ? <img src={url} alt={`${width}x${height}`} className={`max-w-full max-h-full object-contain transition ${isOpen ? "opacity-35" : "group-hover:scale-[1.03]"}`} /> : <div className="w-16 h-10 rounded bg-neutral-400/10 animate-pulse" />}
-        {isOpen && (
-          <div onClick={(e) => e.stopPropagation()} className="absolute inset-0 z-20 flex items-center justify-center p-2">
-            <div className="w-40 rounded-xl bg-white text-[#121317] shadow-xl border border-neutral-200 overflow-hidden flex flex-col divide-y divide-neutral-100">
-              <button type="button" onClick={() => { onPng(renderStandaloneGlassPanel({ width, height, shape, theme, frostOpacity: op }), `${width}x${height}`, shape); onToggle(false); }} className="w-full px-3.5 py-2.5 text-xs font-semibold text-left hover:bg-neutral-100 cursor-pointer">Export .png</button>
-              <button type="button" onClick={() => { onSvg(generateStandaloneGlassSvg({ width, height, shape, theme, frostOpacity: op }), `${width}x${height}`, shape); onToggle(false); }} className="w-full px-3.5 py-2.5 text-xs font-semibold text-left hover:bg-neutral-100 cursor-pointer">Export .svg</button>
-            </div>
-          </div>
-        )}
-      </div>
-      <span className={`text-[11px] font-medium ${theme === "white" ? "text-neutral-700" : "text-neutral-300"}`}>{`${width}px X ${height}px`}</span>
-    </div>
-  );
+function makeFallbackSlideBg(w: number, h: number, theme: BackgroundTheme): HTMLCanvasElement {
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const ctx = c.getContext("2d")!;
+  ctx.fillStyle = theme === "grey1200" ? "#121317" : "#FFFFFF";
+  ctx.fillRect(0, 0, w, h);
+  ctx.save();
+  ctx.filter = `blur(${Math.round(Math.min(w, h) * 0.032)}px)`;
+  ["#EA4335", theme === "white" ? "#FDE293" : "#FBBC04", "#34A853", "#4285F4"].forEach((col, i) => {
+    ctx.beginPath();
+    const off = -0.06 + i * 0.085;
+    ctx.moveTo(w * (0.58 + off), -h * 0.08);
+    ctx.bezierCurveTo(w * (0.92 + off), h * 0.25, w * (0.34 + off), h * 0.65, w * (0.58 + off), h * 1.08);
+    ctx.lineWidth = Math.min(w, h) * (0.08 + i * 0.04);
+    ctx.strokeStyle = col; ctx.lineCap = "round"; ctx.stroke();
+  });
+  ctx.restore();
+  return c;
 }
 
 export default function Page() {
   const [screen, setScreen] = useState<ScreenId>("home");
-  const [slidesTheme, setSlidesTheme] = useState<BackgroundTheme>("imagery");
+  const [theme, setTheme] = useState<BackgroundTheme>("imagery");
   const [imageryIdx, setImageryIdx] = useState(0);
-  const [slidesFormat, setSlidesFormat] = useState<FormatRatio>("1:1");
-  const [slidesPanel, setSlidesPanel] = useState<PanelState>({ id: "s0", shape: "text-panel", theme: "imagery", wIn: "600", hIn: "180", x: 240, y: 450 });
-  const [slidesOpacity, setSlidesOpacity] = useState(50);
-  const [slidesBgImg, setSlidesBgImg] = useState<HTMLImageElement | null>(null);
 
-  const [stickerTheme, setStickerTheme] = useState<BackgroundTheme>("imagery");
+  const [slideFormat, setSlideFormat] = useState<"1:1" | "4:5" | "9:16" | "16:9">("1:1");
+  const [slideShape, setSlideShape] = useState<PanelShape>("text-panel");
+  const [slideW, setSlideW] = useState("420");
+  const [slideH, setSlideH] = useState("180");
+  const [slideOpacity, setSlideOpacity] = useState(50);
+  const [slidePos, setSlidePos] = useState({ x: 330, y: 450 });
+  const slideBgImgRef = useRef<HTMLImageElement | HTMLCanvasElement | null>(null);
+  const slideCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  const [media, setMedia] = useState<LoadedMedia | null>(null);
+  const [resizeMode, setResizeMode] = useState<ResizePreset>("no-resize");
+  const [customFrameW, setCustomFrameW] = useState("1920");
+  const [customFrameH, setCustomFrameH] = useState("1080");
+  const [mediaScale, setMediaScale] = useState(1);
+  const [mediaPan, setMediaPan] = useState({ x: 0, y: 0 });
+  const [bgOpacity, setBgOpacity] = useState(50);
+  const [panels, setPanels] = useState<PanelInstance[]>([
+    { id: "p1", shape: "text-panel", theme: "imagery", widthInput: "600", heightInput: "260", x: 240, y: 240 },
+  ]);
+  const [exportingMotion, setExportingMotion] = useState<null | { fmt: "mp4" | "gif"; pct: number }>(null);
+  const [showMomentumModal, setShowMomentumModal] = useState(false);
+  const [driveUrlInput, setDriveUrlInput] = useState("");
+  const [isLoadingFile, setIsLoadingFile] = useState(false);
+
   const [stickerFilter, setStickerFilter] = useState("all");
   const [openStickerKey, setOpenStickerKey] = useState<string | null>(null);
+  const [toastMsg, setToastMsg] = useState("");
 
-  const [uploadedImg, setUploadedImg] = useState<HTMLImageElement | null>(null);
-  const [motionCtrl, setMotionCtrl] = useState<MotionController | null>(null);
-  const [mediaNat, setMediaNat] = useState({ width: 1920, height: 1080 });
-  const [resizeOpt, setResizeOpt] = useState<ResizeOption>("no-resize");
-  const [customStageW, setCustomStageW] = useState("1080");
-  const [customStageH, setCustomStageH] = useState("1080");
-  const [bgTransform, setBgTransform] = useState<BgTransform>({ scale: 1, offsetX: 0, offsetY: 0 });
-  const [bgPanels, setBgPanels] = useState<PanelState[]>([{ id: "p1", shape: "text-panel", theme: "imagery", wIn: "600", hIn: "350", x: 160, y: 360 }]);
-  const [bgOpacity, setBgOpacity] = useState(50);
-  const [exportProgress, setExportProgress] = useState<string>("");
-  const [toast, setToast] = useState("");
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const bgStageCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const viewTransformRef = useRef({ scale: 1, ox: 0, oy: 0, frozen: false });
+  const dragRef = useRef<{
+    kind: "none" | "slide-panel" | "bg-panel" | "bg-pan" | "bg-corner";
+    panelIdx?: number; corner?: "tl" | "tr" | "bl" | "br";
+    dx?: number; dy?: number; anchorX?: number; anchorY?: number;
+    startPanX?: number; startPanY?: number; startClickX?: number; startClickY?: number;
+  }>({ kind: "none" });
 
-  const fileRef = useRef<HTMLInputElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const dragRef = useRef<{ kind: "panel" | "bg"; idx: number; startX: number; startY: number; origX: number; origY: number } | null>(null);
-  const frameViewRef = useRef({ ox: 0, oy: 0, vw: 1080, vh: 1080 });
+  const frameDims = !media
+    ? { width: 1920, height: 1080 }
+    : resizeMode === "no-resize"
+    ? { width: media.width, height: media.height }
+    : resizeMode === "custom"
+    ? { width: Math.max(64, parseInt(customFrameW || "1080", 10) || 1080), height: Math.max(64, parseInt(customFrameH || "1080", 10) || 1080) }
+    : FORMAT_PRESETS[resizeMode];
 
-  const isMotion = !!motionCtrl;
+  const showToast = (msg: string) => { setToastMsg(msg); setTimeout(() => setToastMsg(""), 3000); };
 
   useEffect(() => {
     const close = () => setOpenStickerKey(null);
@@ -120,467 +95,393 @@ export default function Page() {
     return () => window.removeEventListener("click", close);
   }, []);
 
-  const bgStageDims = (() => {
-    if (resizeOpt === "no-resize") return mediaNat;
-    if (resizeOpt === "custom") return { width: Math.max(64, parseInt(customStageW || "1080", 10) || 1080), height: Math.max(64, parseInt(customStageH || "1080", 10) || 1080) };
-    return { width: FORMAT_DIMENSIONS[resizeOpt].width, height: FORMAT_DIMENSIONS[resizeOpt].height };
-  })();
-
-  const activeStage = screen === "bg-workspace" ? bgStageDims : FORMAT_DIMENSIONS[slidesFormat];
+  useEffect(() => {
+    if (screen !== "slides-workspace") return;
+    const { width, height } = FORMAT_PRESETS[slideFormat];
+    const url = theme === "imagery" ? (BG_ASSETS.imageryExamples[imageryIdx] || BG_ASSETS.imageryExamples[0]) : theme === "grey1200" ? BG_ASSETS.grey1200 : BG_ASSETS.white;
+    const pw = Math.max(60, parseInt(slideW || "420", 10) || 420);
+    const ph = slideShape === "circle" ? pw : Math.max(60, parseInt(slideH || "180", 10) || 180);
+    setSlidePos({ x: Math.round((width - pw) / 2), y: Math.round((height - ph) / 2) });
+    if (url) {
+      const im = new Image();
+      im.onload = () => {
+        const c = document.createElement("canvas"); c.width = width; c.height = height;
+        const s = Math.max(width / im.naturalWidth, height / im.naturalHeight);
+        c.getContext("2d")!.drawImage(im, (width - im.naturalWidth * s) / 2, (height - im.naturalHeight * s) / 2, im.naturalWidth * s, im.naturalHeight * s);
+        slideBgImgRef.current = c;
+      };
+      im.onerror = () => { slideBgImgRef.current = makeFallbackSlideBg(width, height, theme); };
+      im.src = url;
+    } else slideBgImgRef.current = makeFallbackSlideBg(width, height, theme);
+  }, [screen, slideFormat, theme, imageryIdx]);
 
   useEffect(() => {
     if (screen !== "slides-workspace") return;
-    const url = slidesTheme === "imagery" ? BG_ASSETS.imagery[imageryIdx] : slidesTheme === "grey1200" ? BG_ASSETS.grey1200[slidesFormat] : BG_ASSETS.white[slidesFormat];
-    if (!url) { setSlidesBgImg(null); return; }
-    const im = new Image(); im.crossOrigin = "anonymous";
-    im.onload = () => setSlidesBgImg(im);
-    im.src = url;
-    const d = FORMAT_DIMENSIONS[slidesFormat];
-    const pw = Math.max(60, parseInt(slidesPanel.wIn || "420", 10) || 420);
-    const ph = slidesPanel.shape === "circle" ? pw : Math.max(60, parseInt(slidesPanel.hIn || "180", 10) || 180);
-    setSlidesPanel((prev) => ({ ...prev, theme: slidesTheme, x: Math.round((d.width - pw) / 2), y: Math.round((d.height - ph) / 2) }));
-  }, [screen, slidesTheme, imageryIdx, slidesFormat]);
-
-  const toResolved = (p: PanelState, opPct: number): ResolvedPanel | null => {
-    const w = Math.max(0, parseInt(p.wIn || "0", 10) || 0);
-    const h = p.shape === "circle" ? w : Math.max(0, parseInt(p.hIn || "0", 10) || 0);
-    if (w < 24 || h < 24) return null;
-    return { x: p.x, y: p.y, width: w, height: h, shape: p.shape, theme: p.theme, frostOpacity: opPct / 100 };
-  };
-
-  const renderPreview = useCallback((nowMs: number) => {
-    const c = canvasRef.current;
-    if (!c) return;
-    if (screen === "slides-workspace") {
-      const d = FORMAT_DIMENSIONS[slidesFormat];
-      c.width = d.width; c.height = d.height;
-      frameViewRef.current = { ox: 0, oy: 0, vw: d.width, vh: d.height };
-      const ctx = c.getContext("2d")!;
-      const fallback = document.createElement("canvas"); fallback.width = d.width; fallback.height = d.height;
-      const fCtx = fallback.getContext("2d")!; fCtx.fillStyle = slidesTheme === "grey1200" ? "#121317" : "#FFFFFF"; fCtx.fillRect(0, 0, d.width, d.height);
-      const src = slidesBgImg || fallback;
-      const sw = slidesBgImg ? slidesBgImg.naturalWidth : d.width, sh = slidesBgImg ? slidesBgImg.naturalHeight : d.height;
-      const rp = toResolved({ ...slidesPanel, theme: slidesTheme }, slidesOpacity);
-      drawCompositedStageFrame(ctx, src, sw, sh, d.width, d.height, { scale: 1, offsetX: 0, offsetY: 0 }, rp ? [rp] : []);
-      return;
-    }
-
-    if (screen === "bg-workspace") {
-      const src = motionCtrl ? motionCtrl.getCurrentSource(nowMs) : uploadedImg;
-      if (!src) return;
-      const sw = bgStageDims.width, sh = bgStageDims.height;
-      const base = Math.max(sw / Math.max(1, mediaNat.width), sh / Math.max(1, mediaNat.height));
-      const padX = resizeOpt === "no-resize" ? 0 : Math.max(0, Math.round((mediaNat.width * base - sw) / 2));
-      const padY = resizeOpt === "no-resize" ? 0 : Math.max(0, Math.round((mediaNat.height * base - sh) / 2));
-      const vw = sw + padX * 2, vh = sh + padY * 2;
-      c.width = vw; c.height = vh;
-      frameViewRef.current = { ox: padX, oy: padY, vw, vh };
-
-      const ctx = c.getContext("2d")!;
-      ctx.fillStyle = "#F1F3F4"; ctx.fillRect(0, 0, vw, vh);
-      const { dx, dy, dw, dh } = getMediaDrawRect(mediaNat.width, mediaNat.height, sw, sh, bgTransform);
-      ctx.drawImage(src, padX + dx, padY + dy, dw, dh);
-
-      if (resizeOpt !== "no-resize") {
-        ctx.fillStyle = "rgba(255,255,255,0.62)";
-        ctx.fillRect(0, 0, vw, padY);
-        ctx.fillRect(0, padY + sh, vw, padY);
-        ctx.fillRect(0, padY, padX, sh);
-        ctx.fillRect(padX + sw, padY, padX, sh);
+    let raf = 0;
+    const render = () => {
+      const c = slideCanvasRef.current, bg = slideBgImgRef.current;
+      if (c && bg) {
+        const { width, height } = FORMAT_PRESETS[slideFormat];
+        if (c.width !== width || c.height !== height) { c.width = width; c.height = height; }
+        const ctx = c.getContext("2d")!;
+        ctx.clearRect(0, 0, width, height); ctx.drawImage(bg, 0, 0, width, height);
+        const pw = Math.max(24, parseInt(slideW || "0", 10) || 0);
+        const ph = slideShape === "circle" ? pw : Math.max(24, parseInt(slideH || "0", 10) || 0);
+        if (pw >= 24 && ph >= 24) {
+          const patch = renderRefractedGlassPatch(bg, width, height, slidePos.x, slidePos.y, { width: pw, height: ph, shape: slideShape, theme, frostOpacity: slideOpacity / 100 });
+          ctx.drawImage(patch, Math.round(slidePos.x - (patch.width - pw) / 2), Math.round(slidePos.y - (patch.height - ph) / 2));
+        }
       }
-
-      const resolved = bgPanels.map((p) => toResolved(p, bgOpacity)).filter((x): x is ResolvedPanel => !!x);
-      ctx.save();
-      ctx.translate(padX, padY);
-      drawCompositedStageFrame(ctx, src, mediaNat.width, mediaNat.height, sw, sh, bgTransform, resolved);
-      if (resizeOpt !== "no-resize") {
-        ctx.strokeStyle = "#121317"; ctx.lineWidth = Math.max(2, Math.round(Math.min(vw, vh) * 0.0025));
-        ctx.strokeRect(0, 0, sw, sh);
-      }
-      ctx.restore();
-    }
-  }, [screen, slidesFormat, slidesTheme, slidesBgImg, slidesPanel, slidesOpacity, motionCtrl, uploadedImg, bgStageDims, mediaNat, resizeOpt, bgTransform, bgPanels, bgOpacity]);
+      raf = requestAnimationFrame(render);
+    };
+    raf = requestAnimationFrame(render);
+    return () => cancelAnimationFrame(raf);
+  }, [screen, slideFormat, slideW, slideH, slideShape, theme, slideOpacity, slidePos]);
 
   useEffect(() => {
-    if (screen !== "slides-workspace" && screen !== "bg-workspace") return;
-    if (screen === "bg-workspace" && motionCtrl) {
-      let raf = 0;
-      const tick = (t: number) => { renderPreview(t); raf = requestAnimationFrame(tick); };
-      raf = requestAnimationFrame(tick);
-      return () => cancelAnimationFrame(raf);
-    }
-    renderPreview(performance.now());
-  }, [screen, motionCtrl, renderPreview]);
+    if (screen !== "bg-workspace" || !media) return;
+    let raf = 0;
+    const STAGE_W = 860, STAGE_H = 700;
+    const renderLoop = (now: number) => {
+      if (exportingMotion?.fmt === "gif") { raf = requestAnimationFrame(renderLoop); return; }
+      const canvas = bgStageCanvasRef.current;
+      if (canvas) {
+        if (canvas.width !== STAGE_W || canvas.height !== STAGE_H) { canvas.width = STAGE_W; canvas.height = STAGE_H; }
+        const ctx = canvas.getContext("2d")!;
+        const fw = frameDims.width, fh = frameDims.height;
+        const scaledW = media.width * mediaScale, scaledH = media.height * mediaScale;
+        const mx = fw / 2 + mediaPan.x - scaledW / 2, my = fh / 2 + mediaPan.y - scaledH / 2;
+        if (!viewTransformRef.current.frozen) {
+          const minX = Math.min(0, mx), minY = Math.min(0, my), maxX = Math.max(fw, mx + scaledW), maxY = Math.max(fh, my + scaledH);
+          const uW = Math.max(1, maxX - minX), uH = Math.max(1, maxY - minY);
+          const vScale = Math.min((STAGE_W - 52) / uW, (STAGE_H - 52) / uH);
+          viewTransformRef.current = { scale: vScale, ox: (STAGE_W - uW * vScale) / 2 - minX * vScale, oy: (STAGE_H - uH * vScale) / 2 - minY * vScale, frozen: false };
+        }
+        const { scale: vs, ox, oy } = viewTransformRef.current;
+        ctx.clearRect(0, 0, STAGE_W, STAGE_H);
+        ctx.fillStyle = "#F4F5F7"; ctx.fillRect(0, 0, STAGE_W, STAGE_H);
+        const drawable = getMediaFrameAt(media, now);
+        ctx.drawImage(drawable, ox + mx * vs, oy + my * vs, scaledW * vs, scaledH * vs);
+        ctx.save(); ctx.fillStyle = "rgba(244, 245, 247, 0.72)"; ctx.beginPath(); ctx.rect(0, 0, STAGE_W, STAGE_H); ctx.rect(ox, oy, fw * vs, fh * vs); ctx.fill("evenodd"); ctx.restore();
 
-  const autoDetectTheme = (src: CanvasImageSource): BackgroundTheme => {
-    try {
-      const s = document.createElement("canvas"); s.width = 24; s.height = 24;
-      const c = s.getContext("2d")!; c.drawImage(src, 0, 0, 24, 24);
-      const px = c.getImageData(0, 0, 24, 24).data;
-      let lum = 0, wh = 0;
-      for (let i = 0; i < px.length; i += 4) { lum += 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]; if (px[i] > 240 && px[i + 1] > 240 && px[i + 2] > 240) wh++; }
-      if (wh > 288) return "white";
-      if (lum / 576 < 45) return "grey1200";
-    } catch {}
-    return "imagery";
-  };
+        const pW = Math.max(64, Math.round(fw * vs)), pH = Math.max(64, Math.round(fh * vs));
+        const fBuf = document.createElement("canvas"); fBuf.width = pW; fBuf.height = pH;
+        const pPanels = panels.map((p) => ({
+          ...p, x: p.x * vs, y: p.y * vs,
+          widthInput: String(Math.max(24, Math.round((parseInt(p.widthInput || "0", 10) || 0) * vs))),
+          heightInput: String(Math.max(24, Math.round((parseInt(p.heightInput || "0", 10) || 0) * vs))),
+        }));
+        renderFrameWithPanels(fBuf.getContext("2d")!, pW, pH, drawable, mx * vs, my * vs, scaledW * vs, scaledH * vs, pPanels, bgOpacity / 100);
+        ctx.drawImage(fBuf, ox, oy);
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    if (motionCtrl) { motionCtrl.destroy(); setMotionCtrl(null); }
-    setUploadedImg(null);
-
-    const ext = file.name.toLowerCase();
-    const motionFile = file.type.startsWith("video/") || file.type === "image/gif" || /\.(mp4|mov|webm|m4v|gif)$/.test(ext);
-
-    if (motionFile) {
-      try {
-        const mc = await loadMotionFile(file);
-        const det = autoDetectTheme(mc.getCurrentSource(0));
-        setMediaNat({ width: mc.width, height: mc.height });
-        setMotionCtrl(mc);
-        setResizeOpt("no-resize");
-        setBgTransform({ scale: 1, offsetX: 0, offsetY: 0 });
-        setBgOpacity(50);
-        const iw = Math.min(600, Math.round(mc.width * 0.42)), ih = Math.min(340, Math.round(mc.height * 0.28));
-        setBgPanels([{ id: "p1", shape: "text-panel", theme: det, wIn: String(iw), hIn: String(ih), x: Math.round((mc.width - iw) / 2), y: Math.round((mc.height - ih) / 2) }]);
-        setScreen("bg-workspace");
-      } catch {
-        setToast("Could not load motion file"); setTimeout(() => setToast(""), 3000);
+        ctx.strokeStyle = "#121317"; ctx.lineWidth = 1.5; ctx.strokeRect(ox, oy, fw * vs, fh * vs);
+        const rx = ox + mx * vs, ry = oy + my * vs, rw = scaledW * vs, rh = scaledH * vs;
+        ctx.save(); ctx.setLineDash([4, 4]); ctx.strokeStyle = "rgba(18,19,23,0.45)"; ctx.lineWidth = 1; ctx.strokeRect(rx, ry, rw, rh); ctx.restore();
+        for (const [cx, cy] of [[rx, ry], [rx + rw, ry], [rx, ry + rh], [rx + rw, ry + rh]]) {
+          ctx.beginPath(); ctx.arc(cx, cy, 6.5, 0, Math.PI * 2); ctx.fillStyle = "#FFF"; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#121317"; ctx.stroke();
+        }
       }
-      return;
-    }
-
-    const url = URL.createObjectURL(file);
-    const im = new Image();
-    im.onload = () => {
-      const det = autoDetectTheme(im);
-      setMediaNat({ width: im.naturalWidth, height: im.naturalHeight });
-      setUploadedImg(im);
-      setResizeOpt("no-resize");
-      setBgTransform({ scale: 1, offsetX: 0, offsetY: 0 });
-      setBgOpacity(50);
-      const iw = Math.min(600, Math.round(im.naturalWidth * 0.42)), ih = Math.min(340, Math.round(im.naturalHeight * 0.28));
-      setBgPanels([{ id: "p1", shape: "text-panel", theme: det, wIn: String(iw), hIn: String(ih), x: Math.round((im.naturalWidth - iw) / 2), y: Math.round((im.naturalHeight - ih) / 2) }]);
-      setScreen("bg-workspace");
+      raf = requestAnimationFrame(renderLoop);
     };
-    im.src = url;
+    raf = requestAnimationFrame(renderLoop);
+    return () => cancelAnimationFrame(raf);
+  }, [screen, media, frameDims.width, frameDims.height, mediaScale, mediaPan, panels, bgOpacity, exportingMotion?.fmt]);
+
+  const applyLoadedMedia = (loaded: LoadedMedia) => {
+    setMedia(loaded); setResizeMode("no-resize"); setCustomFrameW(String(loaded.width)); setCustomFrameH(String(loaded.height));
+    setMediaScale(1); setMediaPan({ x: 0, y: 0 }); setBgOpacity(50);
+    const iw = Math.min(560, Math.max(120, Math.round(loaded.width * 0.36))), ih = Math.min(220, Math.max(80, Math.round(loaded.height * 0.22)));
+    setPanels([{ id: "p1", shape: "text-panel", theme: "imagery", widthInput: String(iw), heightInput: String(ih), x: Math.round((loaded.width - iw) / 2), y: Math.round((loaded.height - ih) / 2) }]);
+    setShowMomentumModal(false); setScreen("bg-workspace");
   };
 
-  const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    const c = canvasRef.current; if (!c) return;
-    const rect = c.getBoundingClientRect();
-    const { ox, oy, vw, vh } = frameViewRef.current;
-    const sx = (e.clientX - rect.left) * (vw / rect.width) - ox;
-    const sy = (e.clientY - rect.top) * (vh / rect.height) - oy;
+  const handleIngestFile = async (file?: File | null) => {
+    if (!file) return;
+    setIsLoadingFile(true);
+    try { applyLoadedMedia(await loadUniversalMediaFile(file)); }
+    catch (err: any) { showToast(err?.message || "Could not open file"); }
+    finally { setIsLoadingFile(false); if (fileInputRef.current) fileInputRef.current.value = ""; }
+  };
 
-    const list = screen === "bg-workspace" ? bgPanels : [slidesPanel];
-    for (let i = list.length - 1; i >= 0; i--) {
-      const p = list[i];
-      const w = Math.max(24, parseInt(p.wIn || "0", 10) || 0);
-      const h = p.shape === "circle" ? w : Math.max(24, parseInt(p.hIn || "0", 10) || 0);
-      if (sx >= p.x && sx <= p.x + w && sy >= p.y && sy <= p.y + h) {
-        dragRef.current = { kind: "panel", idx: i, startX: sx, startY: sy, origX: p.x, origY: p.y };
-        e.currentTarget.setPointerCapture(e.pointerId);
-        return;
+  const handleImportDriveLink = async () => {
+    const m = driveUrlInput.match(/[-\w]{25,}/);
+    if (!m) { showToast("Paste a Drive file link or drop the downloaded file below"); return; }
+    setIsLoadingFile(true);
+    try {
+      const res = await fetch(`/api/drive-fetch?id=${m[0]}`);
+      if (!res.ok) throw new Error("Download from the open Drive tab & drop file here");
+      const blob = await res.blob();
+      const ext = blob.type.includes("mp4") ? "mp4" : blob.type.includes("gif") ? "gif" : "png";
+      await handleIngestFile(new File([blob], `momentum-asset.${ext}`, { type: blob.type }));
+      setDriveUrlInput("");
+    } catch (err: any) { showToast(err?.message || "Download from Drive tab and drop file below"); }
+    finally { setIsLoadingFile(false); }
+  };
+
+  const applyResizePreset = (next: ResizePreset) => {
+    setResizeMode(next);
+    if (!media) return;
+    const t = next === "no-resize" ? { width: media.width, height: media.height } : next === "custom" ? { width: Math.max(64, parseInt(customFrameW || "1080", 10)), height: Math.max(64, parseInt(customFrameH || "1080", 10)) } : FORMAT_PRESETS[next];
+    setMediaScale(next === "no-resize" ? 1 : Math.max(t.width / media.width, t.height / media.height));
+    setMediaPan({ x: 0, y: 0 });
+    setPanels((prev) => prev.map((p, idx) => {
+      const pw = Math.min(t.width - 40, Math.max(80, parseInt(p.widthInput || "300", 10) || 300));
+      const ph = Math.min(t.height - 40, Math.max(60, parseInt(p.heightInput || "140", 10) || 140));
+      return { ...p, widthInput: String(pw), heightInput: String(ph), x: Math.round((t.width - pw) / 2 + idx * 24), y: Math.round((t.height - ph) / 2 + idx * 24) };
+    }));
+  };
+
+  const onBgStageDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!media || !bgStageCanvasRef.current) return;
+    const rect = bgStageCanvasRef.current.getBoundingClientRect();
+    const sx = (e.clientX - rect.left) * (bgStageCanvasRef.current.width / rect.width);
+    const sy = (e.clientY - rect.top) * (bgStageCanvasRef.current.height / rect.height);
+    const { scale: vs, ox, oy } = viewTransformRef.current;
+    const fw = frameDims.width, fh = frameDims.height, sw = media.width * mediaScale, sh = media.height * mediaScale;
+    const mx = fw / 2 + mediaPan.x - sw / 2, my = fh / 2 + mediaPan.y - sh / 2;
+
+    const corners: { key: "tl" | "tr" | "bl" | "br"; cx: number; cy: number; ax: number; ay: number }[] = [
+      { key: "tl", cx: ox + mx * vs, cy: oy + my * vs, ax: mx + sw, ay: my + sh },
+      { key: "tr", cx: ox + (mx + sw) * vs, cy: oy + my * vs, ax: mx, ay: my + sh },
+      { key: "bl", cx: ox + mx * vs, cy: oy + (my + sh) * vs, ax: mx + sw, ay: my },
+      { key: "br", cx: ox + (mx + sw) * vs, cy: oy + (my + sh) * vs, ax: mx, ay: my },
+    ];
+    for (const c of corners) {
+      if (Math.hypot(sx - c.cx, sy - c.cy) <= 16) {
+        viewTransformRef.current.frozen = true;
+        dragRef.current = { kind: "bg-corner", corner: c.key, anchorX: c.ax, anchorY: c.ay };
+        e.currentTarget.setPointerCapture(e.pointerId); return;
       }
     }
-    if (screen === "bg-workspace") {
-      dragRef.current = { kind: "bg", idx: -1, startX: sx, startY: sy, origX: bgTransform.offsetX, origY: bgTransform.offsetY };
-      e.currentTarget.setPointerCapture(e.pointerId);
+    const fx = (sx - ox) / vs, fy = (sy - oy) / vs;
+    for (let i = panels.length - 1; i >= 0; i--) {
+      const p = panels[i], pw = Math.max(24, parseInt(p.widthInput || "0", 10) || 0), ph = p.shape === "circle" ? pw : Math.max(24, parseInt(p.heightInput || "0", 10) || 0);
+      if (fx >= p.x && fx <= p.x + pw && fy >= p.y && fy <= p.y + ph) {
+        dragRef.current = { kind: "bg-panel", panelIdx: i, dx: fx - p.x, dy: fy - p.y };
+        e.currentTarget.setPointerCapture(e.pointerId); return;
+      }
+    }
+    viewTransformRef.current.frozen = true;
+    dragRef.current = { kind: "bg-pan", startPanX: mediaPan.x, startPanY: mediaPan.y, startClickX: fx, startClickY: fy };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+
+  const onBgStageMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (dragRef.current.kind === "none" || !media || !bgStageCanvasRef.current) return;
+    const rect = bgStageCanvasRef.current.getBoundingClientRect();
+    const sx = (e.clientX - rect.left) * (bgStageCanvasRef.current.width / rect.width);
+    const sy = (e.clientY - rect.top) * (bgStageCanvasRef.current.height / rect.height);
+    const { scale: vs, ox, oy } = viewTransformRef.current;
+    const fx = (sx - ox) / vs, fy = (sy - oy) / vs;
+    if (dragRef.current.kind === "bg-corner") {
+      const { anchorX = 0, anchorY = 0, corner } = dragRef.current;
+      const rawW = corner === "tl" || corner === "bl" ? anchorX - fx : fx - anchorX;
+      const rawH = corner === "tl" || corner === "tr" ? anchorY - fy : fy - anchorY;
+      const ns = Math.max(0.08, Math.min(8, Math.max(rawW / media.width, rawH / media.height)));
+      const nw = media.width * ns, nh = media.height * ns;
+      const nmx = corner === "tl" || corner === "bl" ? anchorX - nw : anchorX;
+      const nmy = corner === "tl" || corner === "tr" ? anchorY - nh : anchorY;
+      setMediaScale(ns); setMediaPan({ x: nmx + nw / 2 - frameDims.width / 2, y: nmy + nh / 2 - frameDims.height / 2 });
+    } else if (dragRef.current.kind === "bg-panel") {
+      const idx = dragRef.current.panelIdx!, dx = dragRef.current.dx || 0, dy = dragRef.current.dy || 0;
+      setPanels((prev) => prev.map((p, i) => {
+        if (i !== idx) return p;
+        const pw = Math.max(24, parseInt(p.widthInput || "0", 10) || 0), ph = p.shape === "circle" ? pw : Math.max(24, parseInt(p.heightInput || "0", 10) || 0);
+        return { ...p, x: Math.max(-pw * 0.35, Math.min(frameDims.width - pw * 0.65, fx - dx)), y: Math.max(-ph * 0.35, Math.min(frameDims.height - ph * 0.65, fy - dy)) };
+      }));
+    } else if (dragRef.current.kind === "bg-pan") {
+      setMediaPan({ x: (dragRef.current.startPanX || 0) + (fx - (dragRef.current.startClickX || 0)), y: (dragRef.current.startPanY || 0) + (fy - (dragRef.current.startClickY || 0)) });
     }
   };
 
-  const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    const d = dragRef.current, c = canvasRef.current;
-    if (!d || !c) return;
-    const rect = c.getBoundingClientRect();
-    const { ox, oy, vw, vh } = frameViewRef.current;
-    const sx = (e.clientX - rect.left) * (vw / rect.width) - ox;
-    const sy = (e.clientY - rect.top) * (vh / rect.height) - oy;
-    const dx = sx - d.startX, dy = sy - d.startY;
-
-    if (d.kind === "bg") {
-      setBgTransform((prev) => ({ ...prev, offsetX: Math.round(d.origX + dx), offsetY: Math.round(d.origY + dy) }));
-    } else if (screen === "slides-workspace") {
-      setSlidesPanel((prev) => ({ ...prev, x: Math.round(d.origX + dx), y: Math.round(d.origY + dy) }));
-    } else {
-      setBgPanels((prev) => prev.map((p, idx) => (idx === d.idx ? { ...p, x: Math.round(d.origX + dx), y: Math.round(d.origY + dy) } : p)));
-    }
+  const onBgStageUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (dragRef.current.kind !== "none") { dragRef.current = { kind: "none" }; viewTransformRef.current.frozen = false; try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {} }
   };
 
-  const onPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (dragRef.current) { dragRef.current = null; e.currentTarget.releasePointerCapture(e.pointerId); }
+  const downloadBlob = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob), a = document.createElement("a");
+    a.href = url; a.download = filename; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url); showToast(`Downloaded ${filename}`);
   };
 
-  const saveBlob = (blob: Blob, name: string) => {
-    const u = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = u; a.download = name; document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    URL.revokeObjectURL(u);
-    setToast(`Downloaded ${name}`); setTimeout(() => setToast(""), 2800);
+  const exportBgPng = () => {
+    if (!media) return;
+    const fw = frameDims.width, fh = frameDims.height, sw = media.width * mediaScale, sh = media.height * mediaScale;
+    const out = document.createElement("canvas"); out.width = fw; out.height = fh;
+    renderFrameWithPanels(out.getContext("2d")!, fw, fh, getMediaFrameAt(media, 0), fw / 2 + mediaPan.x - sw / 2, fh / 2 + mediaPan.y - sh / 2, sw, sh, panels, bgOpacity / 100);
+    out.toBlob((b) => b && downloadBlob(b, `glass-background-${fw}x${fh}.png`), "image/png");
   };
 
-  const saveCanvas = (c: HTMLCanvasElement, name: string) => c.toBlob((b) => b && saveBlob(b, name), "image/png");
-  const saveSvg = (s: string, name: string) => saveBlob(new Blob([s], { type: "image/svg+xml;charset=utf-8" }), name);
+  const exportBgSvg = () => {
+    if (!media) return;
+    const fw = frameDims.width, fh = frameDims.height, sw = media.width * mediaScale, sh = media.height * mediaScale;
+    const svg = exportMultiPanelSvg(fw, fh, getMediaFrameAt(media, 0), fw / 2 + mediaPan.x - sw / 2, fh / 2 + mediaPan.y - sh / 2, sw, sh, panels, bgOpacity / 100);
+    downloadBlob(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }), `glass-background-${fw}x${fh}.svg`);
+  };
 
-  const exportBgMp4OrGif = async (fmt: "mp4" | "gif") => {
-    if (!motionCtrl || exportProgress) return;
-    const resolved = bgPanels.map((p) => toResolved(p, bgOpacity)).filter((x): x is ResolvedPanel => !!x);
-    if (!resolved.length) return;
+  const runMotionExport = async (fmt: "mp4" | "gif") => {
+    if (!media || exportingMotion !== null) return;
+    const fw = frameDims.width, fh = frameDims.height, sw = media.width * mediaScale, sh = media.height * mediaScale;
+    const mx = fw / 2 + mediaPan.x - sw / 2, my = fh / 2 + mediaPan.y - sh / 2;
+    setExportingMotion({ fmt, pct: 0 });
     try {
-      setExportProgress(`Exporting .${fmt} (1%)...`);
-      const blob = fmt === "mp4"
-        ? await exportMotionMp4(motionCtrl, bgStageDims.width, bgStageDims.height, bgTransform, resolved, (pct) => setExportProgress(`Exporting .mp4 (${pct}%)...`))
-        : await exportMotionGif(motionCtrl, bgStageDims.width, bgStageDims.height, bgTransform, resolved, (pct) => setExportProgress(`Exporting .gif (${pct}%)...`));
-      saveBlob(blob, `glass-motion-${bgStageDims.width}x${bgStageDims.height}.${fmt}`);
-    } finally {
-      setExportProgress("");
-    }
+      if (fmt === "mp4") {
+        const blob = await exportCompositedMp4(media, fw, fh, mx, my, sw, sh, panels, bgOpacity / 100, (pct) => setExportingMotion({ fmt: "mp4", pct }));
+        downloadBlob(blob, `glass-motion-${Math.round(fw / 2) * 2}x${Math.round(fh / 2) * 2}.mp4`);
+      } else {
+        const blob = await exportCompositedGif(media, fw, fh, mx, my, sw, sh, panels, bgOpacity / 100, (pct) => setExportingMotion({ fmt: "gif", pct }));
+        downloadBlob(blob, `glass-motion-${fw}x${fh}.gif`);
+      }
+    } catch { showToast(`Could not encode .${fmt} in this browser`); }
+    finally { setExportingMotion(null); }
   };
 
-  const exportStaticBg = (fmt: "png" | "svg") => {
-    if (!uploadedImg) return;
-    const resolved = bgPanels.map((p) => toResolved(p, bgOpacity)).filter((x): x is ResolvedPanel => !!x);
-    if (!resolved.length) return;
-    const { width: sw, height: sh } = bgStageDims;
-    if (fmt === "png") {
-      const out = document.createElement("canvas"); out.width = sw; out.height = sh;
-      drawCompositedStageFrame(out.getContext("2d")!, uploadedImg, mediaNat.width, mediaNat.height, sw, sh, bgTransform, resolved);
-      saveCanvas(out, `glass-composited-${sw}x${sh}.png`);
-    } else {
-      saveSvg(generateCompositedMultiGlassSvg(uploadedImg, mediaNat.width, mediaNat.height, sw, sh, bgTransform, resolved), `glass-composited-${sw}x${sh}.svg`);
-    }
+  const renderZones = (zones: ZoneRect[] | undefined, actions: (() => void)[]) =>
+    (zones || []).map((z, idx) => (
+      <button key={idx} type="button" onClick={actions[idx]} style={{ left: `${z.left}%`, top: `${z.top}%`, width: `${z.width}%`, height: `${z.height}%` }} className="absolute z-20 bg-transparent cursor-pointer focus:outline-none" aria-label={`Option ${idx + 1}`} />
+    ));
+
+  const goBack = () => {
+    if (screen === "slides-pre" || screen === "bg-upload-cover") setScreen("home");
+    else if (screen === "sticker-cover" || screen === "slides-create-cover") setScreen("slides-pre");
+    else if (screen === "sticker-sheet") setScreen("sticker-cover");
+    else if (screen === "slides-fullbleed") setScreen("slides-create-cover");
+    else if (screen === "slides-workspace") setScreen(theme === "imagery" ? "slides-fullbleed" : "slides-create-cover");
+    else if (screen === "bg-workspace") setScreen("bg-upload-cover");
+    else setScreen("home");
   };
 
-  const addExtraBgPanel = () => {
-    if (bgPanels.length >= 6) return;
-    const first = bgPanels[0];
-    const offset = bgPanels.length * 36;
-    setBgPanels([...bgPanels, { id: `p${Date.now()}`, shape: "text-panel", theme: first.theme, wIn: "420", hIn: "160", x: Math.max(20, Math.min(bgStageDims.width - 240, first.x + offset)), y: Math.max(20, Math.min(bgStageDims.height - 140, first.y + offset)) }]);
-  };
-
-  const stickerHeaderSrc = stickerTheme === "grey1200" ? PAGE_ASSETS.stickerHeaderGrey1200 : stickerTheme === "white" ? PAGE_ASSETS.stickerHeaderWhite : PAGE_ASSETS.stickerHeaderImagery;
-  const cats = stickerFilter === "all" ? STICKER_CATEGORIES : STICKER_CATEGORIES.filter((c) => c.id === stickerFilter);
+  const visibleCats = stickerFilter === "all" ? STICKER_CATEGORIES : STICKER_CATEGORIES.filter((c) => c.id === stickerFilter);
 
   return (
-    <div className="min-h-screen w-full bg-[#F1F3F4] flex flex-col items-center py-4 md:py-6 px-3 md:px-6 font-sans text-[#121317]">
-      <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm,video/quicktime,.mp4,.mov,.webm,.m4v,.gif" className="hidden" onChange={handleUpload} />
+    <div
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => { e.preventDefault(); if (screen === "bg-upload-cover" || screen === "bg-workspace" || showMomentumModal) handleIngestFile(e.dataTransfer.files?.[0]); }}
+      className="min-h-screen w-full bg-[#F1F3F4] flex flex-col items-center py-4 md:py-6 px-3 md:px-6 font-sans text-[#121317]"
+    >
+      <input ref={fileInputRef} type="file" accept="image/*,video/*,.psd,.tif,.tiff,.gif,.mp4,.mov,.webm,.m4v,.png,.jpg,.jpeg,.webp,.svg,.avif,.bmp" className="hidden" onChange={(e) => handleIngestFile(e.target.files?.[0])} />
 
-      <div className="w-full max-w-[1200px] flex items-center justify-between mb-2.5 h-8 px-1 sticky top-2 z-30">
-        <div className="flex items-center gap-2">
-          {screen !== "home" && (
-            <button onClick={() => {
-              if (screen === "sticker-sheet") setScreen("sticker-bg-select");
-              else if (screen === "sticker-bg-select" || screen === "slides-bg-select") setScreen("slides-pre");
-              else if (screen === "full-bleed-picker") setScreen("slides-bg-select");
-              else if (screen === "slides-workspace") setScreen(slidesTheme === "imagery" ? "full-bleed-picker" : "slides-bg-select");
-              else if (screen === "bg-workspace") setScreen("bg-upload");
-              else setScreen("home");
-            }} className="text-xs font-medium text-neutral-700 hover:text-black bg-white/95 px-3.5 py-1.5 rounded-full border border-neutral-200 shadow-sm cursor-pointer">← Back</button>
-          )}
-          {screen === "bg-workspace" && (
-            <button onClick={() => fileRef.current?.click()} className="text-xs font-medium text-neutral-700 hover:text-black bg-white/95 px-3.5 py-1.5 rounded-full border border-neutral-200 shadow-sm cursor-pointer">
-              {isMotion ? "Replace motion file" : "Replace image"}
-            </button>
-          )}
-        </div>
-        <div className="flex items-center gap-2.5">
-          {(toast || exportProgress) && (
-            <span className="text-xs font-medium text-emerald-900 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full shadow-sm">{exportProgress || toast}</span>
-          )}
-          {screen !== "home" && (
-            <button onClick={() => setScreen("home")} className="text-xs font-medium text-neutral-700 hover:text-black bg-white/95 px-3.5 py-1.5 rounded-full border border-neutral-200 shadow-sm cursor-pointer">Home</button>
-          )}
+      <div className="w-full max-w-[1180px] flex items-center justify-between mb-2.5 h-8 px-1 sticky top-2 z-30">
+        {screen !== "home" ? (
+          <div className="flex items-center gap-2">
+            <button onClick={goBack} className="inline-flex items-center gap-1.5 text-xs font-medium text-neutral-700 hover:text-black bg-white/95 px-3 py-1.5 rounded-full border border-neutral-200 shadow-sm cursor-pointer"><ArrowLeft className="w-3.5 h-3.5" /> Back</button>
+            {screen === "bg-workspace" && <button onClick={() => fileInputRef.current?.click()} className="inline-flex items-center gap-1.5 text-xs font-medium text-neutral-700 hover:text-black bg-white/95 px-3 py-1.5 rounded-full border border-neutral-200 shadow-sm cursor-pointer"><Upload className="w-3.5 h-3.5" /> Replace file</button>}
+          </div>
+        ) : <span />}
+        <div className="flex items-center gap-3">
+          {(toastMsg || isLoadingFile) && <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full shadow-sm"><Check className="w-3.5 h-3.5" /> {isLoadingFile ? "Loading asset..." : toastMsg}</span>}
+          {screen !== "home" && <button onClick={() => setScreen("home")} className="inline-flex items-center gap-1.5 text-xs font-medium text-neutral-600 hover:text-black bg-white/95 px-3 py-1.5 rounded-full border border-neutral-200 shadow-sm cursor-pointer"><RotateCcw className="w-3.5 h-3.5" /> Home</button>}
         </div>
       </div>
 
+      {showMomentumModal && (
+        <div className="fixed inset-0 z-50 bg-black/45 backdrop-blur-xs flex items-center justify-center p-4" onClick={() => setShowMomentumModal(false)}>
+          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-neutral-200 p-6 space-y-4">
+            <div className="flex items-start justify-between">
+              <div>
+                <h3 className="text-base font-semibold">Upload GFS Momentum Asset</h3>
+                <p className="text-xs text-neutral-600 mt-1">Download any <strong>.mp4, .psd, .gif, .png, .jpeg, .mov</strong> or image/motion file from the open Drive folder and drop or select it here:</p>
+              </div>
+              <button onClick={() => setShowMomentumModal(false)} className="p-1 text-neutral-400 hover:text-black cursor-pointer"><X className="w-4 h-4" /></button>
+            </div>
+            <div onClick={() => fileInputRef.current?.click()} className="border-2 border-dashed border-neutral-300 hover:border-neutral-900 rounded-xl p-7 text-center cursor-pointer transition bg-neutral-50/70">
+              <Upload className="w-6 h-6 mx-auto mb-2 text-neutral-700" />
+              <p className="text-xs font-semibold">Click to choose file or drag &amp; drop here</p>
+              <p className="text-[11px] text-neutral-500 mt-1">Supports .psd, .mp4, .gif, .png, .jpeg, .mov, .webm, .tif &amp; more</p>
+            </div>
+            <div className="space-y-1.5 pt-1">
+              <label className="text-[11px] font-medium text-neutral-600">Or paste a shared Google Drive file link:</label>
+              <div className="flex gap-2">
+                <input type="text" placeholder="https://drive.google.com/file/d/..." value={driveUrlInput} onChange={(e) => setDriveUrlInput(e.target.value)} className="flex-1 h-8 px-2.5 text-xs border border-neutral-300 rounded-lg" />
+                <button onClick={handleImportDriveLink} className="px-3 h-8 rounded-lg bg-[#121317] text-white text-xs font-medium cursor-pointer">Load</button>
+              </div>
+            </div>
+            <a href={GFS_MOMENTUM_DRIVE_URL} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 hover:underline">Re-open GFS Momentum Drive folder <ExternalLink className="w-3 h-3" /></a>
+          </div>
+        </div>
+      )}
+
       {screen !== "sticker-sheet" ? (
-        <div className="relative w-full max-w-[1200px] aspect-[16/9] bg-white rounded-2xl shadow-xl overflow-hidden border border-neutral-200/90">
-          {screen === "home" && (
-            <>
-              <img src={PAGE_ASSETS.home} alt="Welcome" className="w-full h-full object-cover select-none pointer-events-none" />
-              <ZoneBtn z={BUTTON_ZONES.home[0]} label="Export panels for print and design" onClick={() => setScreen("bg-upload")} />
-              <ZoneBtn z={BUTTON_ZONES.home[1]} label="Export panels for slides" onClick={() => setScreen("slides-pre")} />
-            </>
-          )}
-
-          {screen === "slides-pre" && (
-            <>
-              <img src={PAGE_ASSETS.slidesPreCover} alt="Export panels for slides" className="w-full h-full object-cover select-none pointer-events-none" />
-              <ZoneBtn z={BUTTON_ZONES.slidesPreCover[0]} label="Sticker sheets" onClick={() => setScreen("sticker-bg-select")} />
-              <ZoneBtn z={BUTTON_ZONES.slidesPreCover[1]} label="Create panels for slides" onClick={() => setScreen("slides-bg-select")} />
-            </>
-          )}
-
-          {screen === "sticker-bg-select" && (
-            <>
-              <img src={PAGE_ASSETS.stickerCover} alt="Sticker sheets" className="w-full h-full object-cover select-none pointer-events-none" />
-              {(["imagery", "grey1200", "white"] as BackgroundTheme[]).map((th, i) => (
-                <ZoneBtn key={th} z={BUTTON_ZONES.stickerCover[i]} label={th} onClick={() => { setStickerTheme(th); setStickerFilter("all"); setOpenStickerKey(null); setScreen("sticker-sheet"); }} />
-              ))}
-            </>
-          )}
-
-          {screen === "slides-bg-select" && (
-            <>
-              <img src={PAGE_ASSETS.slidesBgSelect} alt="Select background" className="w-full h-full object-cover select-none pointer-events-none" />
-              <ZoneBtn z={BUTTON_ZONES.slidesBgSelect[0]} label="Full bleed imagery" onClick={() => { setSlidesTheme("imagery"); setSlidesOpacity(50); setScreen("full-bleed-picker"); }} />
-              <ZoneBtn z={BUTTON_ZONES.slidesBgSelect[1]} label="Grey 1200" onClick={() => { setSlidesTheme("grey1200"); setSlidesOpacity(50); setSlidesFormat("1:1"); setScreen("slides-workspace"); }} />
-              <ZoneBtn z={BUTTON_ZONES.slidesBgSelect[2]} label="White" onClick={() => { setSlidesTheme("white"); setSlidesOpacity(50); setSlidesFormat("1:1"); setScreen("slides-workspace"); }} />
-            </>
-          )}
-
-          {screen === "full-bleed-picker" && (
-            <>
-              <img src={PAGE_ASSETS.fullBleedPicker} alt="Select example photo" className="w-full h-full object-cover select-none pointer-events-none" />
-              {BUTTON_ZONES.fullBleedPicker.map((z, i) => (
-                <ZoneBtn key={i} z={z} label={`Photo ${i + 1}`} onClick={() => { setImageryIdx(i); setSlidesTheme("imagery"); setSlidesOpacity(50); setSlidesFormat("1:1"); setScreen("slides-workspace"); }} />
-              ))}
-            </>
-          )}
-
-          {screen === "bg-upload" && (
-            <>
-              <img src={PAGE_ASSETS.bgUploadCover} alt="Export a panel on your background" className="w-full h-full object-cover select-none pointer-events-none" />
-              <ZoneBtn z={BUTTON_ZONES.bgUploadCover[0]} label="Upload your file" onClick={() => fileRef.current?.click()} />
-              <ZoneBtn z={BUTTON_ZONES.bgUploadCover[1]} label="Upload a GFS Momentum asset" href={MOMENTUM_DRIVE_URL} />
-            </>
-          )}
+        <div className="relative w-full max-w-[1180px] aspect-[16/9] bg-white rounded-2xl shadow-xl overflow-hidden border border-neutral-200">
+          {screen === "home" && <><img src={PAGE_ASSETS.home} alt="Welcome" className="w-full h-full object-cover select-none" />{renderZones(BUTTON_ZONES.home, [() => setScreen("bg-upload-cover"), () => setScreen("slides-pre")])}</>}
+          {screen === "slides-pre" && <><img src={PAGE_ASSETS.slidesPreCover} alt="Slides" className="w-full h-full object-cover select-none" />{renderZones(BUTTON_ZONES.slidesPreCover, [() => setScreen("sticker-cover"), () => setScreen("slides-create-cover")])}</>}
+          {screen === "sticker-cover" && <><img src={PAGE_ASSETS.stickerCover} alt="Stickers" className="w-full h-full object-cover select-none" />{renderZones(BUTTON_ZONES.stickerCover, [() => { setTheme("imagery"); setStickerFilter("all"); setScreen("sticker-sheet"); }, () => { setTheme("grey1200"); setStickerFilter("all"); setScreen("sticker-sheet"); }, () => { setTheme("white"); setStickerFilter("all"); setScreen("sticker-sheet"); }])}</>}
+          {screen === "slides-create-cover" && <><img src={PAGE_ASSETS.slidesCreateCover} alt="Create" className="w-full h-full object-cover select-none" />{renderZones(BUTTON_ZONES.slidesCreateCover, [() => { setTheme("imagery"); setSlideOpacity(50); setScreen("slides-fullbleed"); }, () => { setTheme("grey1200"); setSlideOpacity(50); setScreen("slides-workspace"); }, () => { setTheme("white"); setSlideOpacity(50); setScreen("slides-workspace"); }])}</>}
+          {screen === "slides-fullbleed" && <><img src={PAGE_ASSETS.slidesFullBleedCover} alt="Examples" className="w-full h-full object-cover select-none" />{renderZones(BUTTON_ZONES.fullBleedPhotos, [0,1,2,3].map((i) => () => { setImageryIdx(i); setTheme("imagery"); setSlideOpacity(50); setScreen("slides-workspace"); }))}</>}
+          {screen === "bg-upload-cover" && <><img src={PAGE_ASSETS.bgUploadCover} alt="Upload" className="w-full h-full object-cover select-none" />{renderZones(BUTTON_ZONES.bgUploadCover, [() => fileInputRef.current?.click(), () => { window.open(GFS_MOMENTUM_DRIVE_URL, "_blank", "noopener,noreferrer"); setShowMomentumModal(true); }])}</>}
 
           {screen === "slides-workspace" && (
             <div className="relative w-full h-full">
-              <img src={PAGE_ASSETS.slidesWorkspace} alt="" className="w-full h-full object-cover select-none pointer-events-none" />
-              <div className="absolute z-10 left-[4.5%] w-[43%] top-[16%] bottom-[7%] flex items-center justify-center">
-                <canvas ref={canvasRef} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} className="max-w-full max-h-full object-contain shadow-sm cursor-grab active:cursor-grabbing" />
+              <img src={PAGE_ASSETS.slidesInternal} alt="" className="w-full h-full object-cover select-none pointer-events-none" />
+              <div className="absolute z-10 left-[4.5%] w-[42.5%] top-[17%] bottom-[8%] flex items-center justify-center">
+                <canvas
+                  ref={slideCanvasRef}
+                  onPointerDown={(e) => {
+                    const c = slideCanvasRef.current; if (!c) return;
+                    const r = c.getBoundingClientRect(), fx = (e.clientX - r.left) * (c.width / r.width), fy = (e.clientY - r.top) * (c.height / r.height);
+                    const pw = Math.max(24, parseInt(slideW || "0", 10) || 0), ph = slideShape === "circle" ? pw : Math.max(24, parseInt(slideH || "0", 10) || 0);
+                    dragRef.current = { kind: "slide-panel", dx: fx >= slidePos.x && fx <= slidePos.x + pw ? fx - slidePos.x : pw / 2, dy: fy >= slidePos.y && fy <= slidePos.y + ph ? fy - slidePos.y : ph / 2 };
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                  }}
+                  onPointerMove={(e) => {
+                    if (dragRef.current.kind !== "slide-panel" || !slideCanvasRef.current) return;
+                    const c = slideCanvasRef.current, r = c.getBoundingClientRect(), fx = (e.clientX - r.left) * (c.width / r.width), fy = (e.clientY - r.top) * (c.height / r.height);
+                    const pw = Math.max(24, parseInt(slideW || "0", 10) || 0), ph = slideShape === "circle" ? pw : Math.max(24, parseInt(slideH || "0", 10) || 0);
+                    setSlidePos({ x: Math.max(-pw * 0.25, Math.min(c.width - pw * 0.75, fx - (dragRef.current.dx || 0))), y: Math.max(-ph * 0.25, Math.min(c.height - ph * 0.75, fy - (dragRef.current.dy || 0))) });
+                  }}
+                  onPointerUp={(e) => { dragRef.current = { kind: "none" }; try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {} }}
+                  className="max-w-full max-h-full object-contain shadow-sm cursor-grab active:cursor-grabbing"
+                />
               </div>
-              <div className="absolute z-10 left-[50%] right-[5%] top-[56%] bottom-[4%] overflow-y-auto pr-2 flex flex-col gap-2">
-                <div className="flex flex-wrap items-end gap-2.5">
-                  <div className="flex flex-col gap-0.5">
-                    <label className="text-[10px] font-semibold">Format</label>
-                    <select value={slidesFormat} onChange={(e) => setSlidesFormat(e.target.value as FormatRatio)} className="h-7 px-2 text-[11px] bg-white border border-neutral-800 rounded-md">
-                      <option value="1:1">1:1</option><option value="4:5">4:5</option><option value="9:16">9:16</option><option value="16:9">16:9</option>
-                    </select>
-                  </div>
-                  <div className="flex flex-col gap-0.5">
-                    <label className="text-[10px] font-semibold">Shape</label>
-                    <select value={slidesPanel.shape} onChange={(e) => { const sh = e.target.value as PanelShape; setSlidesPanel((p) => ({ ...p, shape: sh, hIn: sh === "circle" ? p.wIn : sh === "cta-pill" && parseInt(p.hIn, 10) > 140 ? "84" : p.hIn })); }} className="h-7 px-2 text-[11px] bg-white border border-neutral-800 rounded-md">
-                      <option value="text-panel">Text panel</option><option value="circle">Circle</option><option value="cta-pill">CTA pill</option>
-                    </select>
-                  </div>
+              <div className="absolute z-10 left-[50%] right-[6%] top-[55%] bottom-[4%] flex flex-col gap-2">
+                <div className="flex flex-wrap items-end gap-3">
+                  <div className="flex flex-col gap-0.5"><label className="text-[10px] font-semibold">Format</label><select value={slideFormat} onChange={(e) => setSlideFormat(e.target.value as any)} className="h-7 px-2 text-[11px] bg-white border border-neutral-800 rounded-md"><option value="1:1">1:1</option><option value="4:5">4:5</option><option value="9:16">9:16</option><option value="16:9">16:9</option></select></div>
+                  <div className="flex flex-col gap-0.5"><label className="text-[10px] font-semibold">Shape</label><select value={slideShape} onChange={(e) => setSlideShape(e.target.value as PanelShape)} className="h-7 px-2 text-[11px] bg-white border border-neutral-800 rounded-md"><option value="text-panel">Text panel</option><option value="circle">Circle</option><option value="cta-pill">CTA pill</option></select></div>
                 </div>
-                <div className="flex flex-col gap-0.5">
-                  <label className="text-[10px] font-semibold">Size</label>
-                  <div className="flex items-center gap-1.5 text-[11px]">
-                    <input type="number" min={24} max={4000} value={slidesPanel.wIn} onChange={(e) => setSlidesPanel((p) => ({ ...p, wIn: e.target.value, hIn: p.shape === "circle" ? e.target.value : p.hIn }))} className="w-[68px] h-7 px-2 bg-white border border-neutral-800 rounded-md" />
-                    <span>{slidesPanel.shape === "circle" ? "px diameter" : "px wide x"}</span>
-                    {slidesPanel.shape !== "circle" && (<><input type="number" min={24} max={4000} value={slidesPanel.hIn} onChange={(e) => setSlidesPanel((p) => ({ ...p, hIn: e.target.value }))} className="w-[68px] h-7 px-2 bg-white border border-neutral-800 rounded-md" /><span>px high</span></>)}
-                  </div>
-                </div>
-                <div className="flex flex-col gap-0.5 max-w-[260px]">
-                  <div className="flex justify-between text-[10px]"><span className="font-semibold">Opacity</span><span className="text-neutral-500">{slidesOpacity}%</span></div>
-                  <input type="range" min={0} max={100} value={slidesOpacity} onChange={(e) => setSlidesOpacity(Number(e.target.value))} className="w-full accent-neutral-900 h-1.5 bg-neutral-300 rounded-lg cursor-pointer" />
-                </div>
-                <div className="pt-1 flex gap-2">
-                  <button onClick={() => { const rp = toResolved({ ...slidesPanel, theme: slidesTheme }, slidesOpacity); if (rp) saveCanvas(renderStandaloneGlassPanel(rp), `glass-${rp.shape}-${slidesTheme}-${rp.width}x${rp.height}.png`); }} className="px-4 py-1 rounded-full border-[1.5px] border-neutral-900 bg-white hover:bg-neutral-900 hover:text-white text-[11px] font-semibold cursor-pointer">Export .png</button>
-                  <button onClick={() => { const rp = toResolved({ ...slidesPanel, theme: slidesTheme }, slidesOpacity); if (rp) saveSvg(generateStandaloneGlassSvg(rp), `glass-${rp.shape}-${slidesTheme}-${rp.width}x${rp.height}.svg`); }} className="px-4 py-1 rounded-full border-[1.5px] border-neutral-900 bg-white hover:bg-neutral-900 hover:text-white text-[11px] font-semibold cursor-pointer">Export .svg</button>
+                <div className="flex flex-col gap-0.5"><label className="text-[10px] font-semibold">Size</label><div className="flex items-center gap-2 text-[11px]"><input type="number" min={24} max={4000} value={slideW} onChange={(e) => setSlideW(e.target.value)} className="w-[72px] h-7 px-2 bg-white border border-neutral-800 rounded-md" /><span>{slideShape === "circle" ? "px diameter" : "px wide x"}</span>{slideShape !== "circle" && <><input type="number" min={24} max={4000} value={slideH} onChange={(e) => setSlideH(e.target.value)} className="w-[72px] h-7 px-2 bg-white border border-neutral-800 rounded-md" /><span>px high</span></>}</div></div>
+                <div className="flex flex-col gap-0.5 max-w-[260px]"><div className="flex justify-between text-[10px]"><span className="font-semibold">Opacity</span><span className="text-neutral-500">{slideOpacity}%</span></div><input type="range" min={0} max={100} value={slideOpacity} onChange={(e) => setSlideOpacity(Number(e.target.value))} className="w-full accent-neutral-900 h-1.5 bg-neutral-300 rounded-lg cursor-pointer" /></div>
+                <div className="pt-1 flex items-center gap-2">
+                  <button onClick={() => { const pw = Math.max(24, parseInt(slideW || "0", 10) || 0), ph = slideShape === "circle" ? pw : Math.max(24, parseInt(slideH || "0", 10) || 0); renderStandaloneGlassPanel({ width: pw, height: ph, shape: slideShape, theme, frostOpacity: slideOpacity / 100 }).toBlob((b) => b && downloadBlob(b, `glass-${slideShape}-${theme}-${pw}x${ph}.png`), "image/png"); }} className="px-4 py-1 rounded-full border-[1.5px] border-neutral-900 bg-white hover:bg-neutral-900 hover:text-white text-[11px] font-semibold transition cursor-pointer">Export .png</button>
+                  <button onClick={() => { const pw = Math.max(24, parseInt(slideW || "0", 10) || 0), ph = slideShape === "circle" ? pw : Math.max(24, parseInt(slideH || "0", 10) || 0); downloadBlob(new Blob([generateStandaloneGlassSvg({ width: pw, height: ph, shape: slideShape, theme, frostOpacity: slideOpacity / 100 })], { type: "image/svg+xml;charset=utf-8" }), `glass-${slideShape}-${theme}-${pw}x${ph}.svg`); }} className="px-4 py-1 rounded-full border-[1.5px] border-neutral-900 bg-white hover:bg-neutral-900 hover:text-white text-[11px] font-semibold transition cursor-pointer">Export .svg</button>
                 </div>
               </div>
             </div>
           )}
 
-          {screen === "bg-workspace" && (
+          {screen === "bg-workspace" && media && (
             <div className="relative w-full h-full">
-              <img src={PAGE_ASSETS.bgWorkspace} alt="" className="w-full h-full object-cover select-none pointer-events-none" />
-              <div className="absolute z-10 left-[4.5%] w-[43%] top-[16%] bottom-[7%] flex items-center justify-center">
-                <canvas ref={canvasRef} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} className="max-w-full max-h-full object-contain shadow-sm cursor-grab active:cursor-grabbing" />
+              <img src={PAGE_ASSETS.bgInternal} alt="" className="w-full h-full object-cover select-none pointer-events-none" />
+              <div className="absolute z-10 left-[4.2%] w-[43.5%] top-[16.5%] bottom-[7.5%] flex items-center justify-center">
+                <canvas ref={bgStageCanvasRef} onPointerDown={onBgStageDown} onPointerMove={onBgStageMove} onPointerUp={onBgStageUp} className="max-w-full max-h-full object-contain rounded shadow-xs cursor-move" />
               </div>
-
-              <div className="absolute z-10 left-[50%] right-[4%] top-[55%] bottom-[3%] overflow-y-auto pr-2 flex flex-col gap-2">
+              <div className="absolute z-10 left-[50%] right-[5%] top-[53.5%] bottom-[3.5%] overflow-y-auto pr-2 flex flex-col gap-2">
                 <div className="flex flex-wrap items-end gap-2.5">
-                  <div className="flex flex-col gap-0.5">
-                    <label className="text-[10px] font-semibold">Image resize</label>
-                    <select value={resizeOpt} onChange={(e) => { setResizeOpt(e.target.value as ResizeOption); setBgTransform({ scale: 1, offsetX: 0, offsetY: 0 }); }} className="h-7 px-2 text-[11px] bg-white border border-neutral-800 rounded-md">
-                      <option value="no-resize">No resize</option>
-                      <option value="1:1">1:1 (1080x1080)</option>
-                      <option value="4:5">4:5 (1080x1350)</option>
-                      <option value="9:16">9:16 (1080x1920)</option>
-                      <option value="16:9">16:9 (1920x1080)</option>
-                      <option value="custom">Custom</option>
-                    </select>
-                  </div>
-                  <div className="flex flex-col gap-0.5 w-[130px]">
-                    <div className="flex justify-between text-[10px]"><span className="font-semibold">Scale</span><span className="text-neutral-500">{Math.round(bgTransform.scale * 100)}%</span></div>
-                    <input type="range" min={25} max={250} value={Math.round(bgTransform.scale * 100)} onChange={(e) => setBgTransform((b) => ({ ...b, scale: Number(e.target.value) / 100 }))} className="w-full accent-neutral-900 h-1.5 bg-neutral-300 rounded-lg cursor-pointer" />
-                  </div>
+                  <div className="flex flex-col gap-0.5"><label className="text-[10px] font-semibold">Image resize</label><select value={resizeMode} onChange={(e) => applyResizePreset(e.target.value as ResizePreset)} className="h-7 px-2 text-[11px] bg-white border border-neutral-800 rounded-md"><option value="no-resize">No resize ({media.width}x{media.height})</option><option value="1:1">1:1 (1080x1080)</option><option value="4:5">4:5 (1080x1350)</option><option value="9:16">9:16 (1080x1920)</option><option value="16:9">16:9 (1920x1080)</option><option value="custom">Custom</option></select></div>
+                  {resizeMode === "custom" && <div className="flex items-center gap-1.5 text-[11px]"><input type="number" min={64} max={6000} value={customFrameW} onChange={(e) => setCustomFrameW(e.target.value)} className="w-[68px] h-7 px-2 bg-white border border-neutral-800 rounded-md" /><span>x</span><input type="number" min={64} max={6000} value={customFrameH} onChange={(e) => setCustomFrameH(e.target.value)} className="w-[68px] h-7 px-2 bg-white border border-neutral-800 rounded-md" /><span>px</span></div>}
                 </div>
 
-                {resizeOpt === "custom" && (
-                  <div className="flex items-center gap-1.5 text-[11px]">
-                    <input type="number" min={64} max={4000} value={customStageW} onChange={(e) => setCustomStageW(e.target.value)} className="w-[68px] h-7 px-2 bg-white border border-neutral-800 rounded-md" />
-                    <span>px wide x</span>
-                    <input type="number" min={64} max={4000} value={customStageH} onChange={(e) => setCustomStageH(e.target.value)} className="w-[68px] h-7 px-2 bg-white border border-neutral-800 rounded-md" />
-                    <span>px high</span>
-                  </div>
-                )}
-
-                {bgPanels.map((p, idx) => (
-                  <div key={p.id} className={`flex flex-col gap-1.5 ${idx > 0 ? "pt-2 border-t border-neutral-200" : ""}`}>
-                    {idx > 0 && (
-                      <div className="flex items-center justify-between max-w-[280px]">
-                        <span className="text-[10px] font-semibold text-neutral-700">Panel {idx + 1}</span>
-                        <button type="button" onClick={() => setBgPanels((prev) => prev.filter((_, j) => j !== idx))} className="text-[10px] text-neutral-500 hover:text-red-600 cursor-pointer">Remove</button>
-                      </div>
-                    )}
+                {panels.map((p, idx) => (
+                  <div key={p.id} className={idx > 0 ? "pt-2 border-t border-neutral-200 space-y-1.5" : "space-y-1.5"}>
                     <div className="flex flex-wrap items-end gap-2.5">
-                      <div className="flex flex-col gap-0.5">
-                        <label className="text-[10px] font-semibold">Shape</label>
-                        <select value={p.shape} onChange={(e) => { const sh = e.target.value as PanelShape; setBgPanels((prev) => prev.map((it, j) => j === idx ? { ...it, shape: sh, hIn: sh === "circle" ? it.wIn : sh === "cta-pill" && parseInt(it.hIn, 10) > 140 ? "84" : it.hIn } : it)); }} className="h-7 px-2 text-[11px] bg-white border border-neutral-800 rounded-md">
-                          <option value="text-panel">Text panel</option><option value="circle">Circle</option><option value="cta-pill">CTA pill</option>
-                        </select>
-                      </div>
-                      <div className="flex flex-col gap-0.5">
-                        <label className="text-[10px] font-semibold">Rim calibration</label>
-                        <select value={p.theme} onChange={(e) => setBgPanels((prev) => prev.map((it, j) => j === idx ? { ...it, theme: e.target.value as BackgroundTheme } : it))} className="h-7 px-2 text-[11px] bg-white border border-neutral-800 rounded-md">
-                          <option value="imagery">Full bleed image</option><option value="grey1200">Grey 1200</option><option value="white">White</option>
-                        </select>
-                      </div>
+                      <div className="flex flex-col gap-0.5"><label className="text-[10px] font-semibold">{idx === 0 ? "Shape" : `Panel ${idx + 1} shape`}</label><select value={p.shape} onChange={(e) => { const sh = e.target.value as PanelShape; setPanels((prev) => prev.map((it, i) => (i === idx ? { ...it, shape: sh } : it))); }} className="h-7 px-2 text-[11px] bg-white border border-neutral-800 rounded-md"><option value="text-panel">Text panel</option><option value="circle">Circle</option><option value="cta-pill">CTA pill</option></select></div>
+                      <div className="flex flex-col gap-0.5"><label className="text-[10px] font-semibold">Rim calibration</label><select value={p.theme} onChange={(e) => { const th = e.target.value as BackgroundTheme; setPanels((prev) => prev.map((it, i) => (i === idx ? { ...it, theme: th } : it))); }} className="h-7 px-2 text-[11px] bg-white border border-neutral-800 rounded-md"><option value="imagery">Full bleed image</option><option value="grey1200">Grey 1200</option><option value="white">White</option></select></div>
                     </div>
-                    <div className="flex flex-col gap-0.5">
-                      <label className="text-[10px] font-semibold">Size</label>
-                      <div className="flex items-center gap-1.5 text-[11px]">
-                        <input type="number" min={24} max={4000} value={p.wIn} onChange={(e) => setBgPanels((prev) => prev.map((it, j) => j === idx ? { ...it, wIn: e.target.value, hIn: it.shape === "circle" ? e.target.value : it.hIn } : it))} className="w-[68px] h-7 px-2 bg-white border border-neutral-800 rounded-md" />
-                        <span>{p.shape === "circle" ? "px diameter" : "px wide x"}</span>
-                        {p.shape !== "circle" && (<><input type="number" min={24} max={4000} value={p.hIn} onChange={(e) => setBgPanels((prev) => prev.map((it, j) => j === idx ? { ...it, hIn: e.target.value } : it))} className="w-[68px] h-7 px-2 bg-white border border-neutral-800 rounded-md" /><span>px high</span></>)}
-                      </div>
-                    </div>
-                    {idx === 0 && (
-                      <div className="flex flex-col gap-0.5 max-w-[260px]">
-                        <div className="flex justify-between text-[10px]"><span className="font-semibold">Opacity</span><span className="text-neutral-500">{bgOpacity}%</span></div>
-                        <input type="range" min={0} max={100} value={bgOpacity} onChange={(e) => setBgOpacity(Number(e.target.value))} className="w-full accent-neutral-900 h-1.5 bg-neutral-300 rounded-lg cursor-pointer" />
-                      </div>
-                    )}
+                    <div className="flex flex-col gap-0.5"><label className="text-[10px] font-semibold">Size</label><div className="flex items-center gap-2 text-[11px]"><input type="number" min={24} max={4000} value={p.widthInput} onChange={(e) => { const v = e.target.value; setPanels((prev) => prev.map((it, i) => (i === idx ? { ...it, widthInput: v, ...(it.shape === "circle" ? { heightInput: v } : {}) } : it))); }} className="w-[70px] h-7 px-2 bg-white border border-neutral-800 rounded-md" /><span>{p.shape === "circle" ? "px diameter" : "px wide x"}</span>{p.shape !== "circle" && <><input type="number" min={24} max={4000} value={p.heightInput} onChange={(e) => { const v = e.target.value; setPanels((prev) => prev.map((it, i) => (i === idx ? { ...it, heightInput: v } : it))); }} className="w-[70px] h-7 px-2 bg-white border border-neutral-800 rounded-md" /><span>px high</span></>}</div></div>
+                    {idx === 0 && <div className="flex flex-col gap-0.5 max-w-[250px]"><div className="flex justify-between text-[10px]"><span className="font-semibold">Opacity</span><span className="text-neutral-500">{bgOpacity}%</span></div><input type="range" min={0} max={100} value={bgOpacity} onChange={(e) => setBgOpacity(Number(e.target.value))} className="w-full accent-neutral-900 h-1.5 bg-neutral-300 rounded-lg cursor-pointer" /></div>}
+                    {idx < 5 && <div className="pt-0.5"><label className="inline-flex items-center gap-2 text-[10px] font-semibold cursor-pointer select-none"><span>Add another panel?</span><input type="checkbox" checked={panels.length > idx + 1} onChange={(e) => { if (e.target.checked) setPanels((prev) => [...prev, { id: `p-${Date.now()}`, shape: "text-panel", theme: prev[0].theme, widthInput: "420", heightInput: "160", x: Math.round(frameDims.width * 0.25 + (idx + 1) * 30), y: Math.round(frameDims.height * 0.28 + (idx + 1) * 30) }]); else setPanels((prev) => prev.slice(0, idx + 1)); }} className="w-3.5 h-3.5 rounded-full accent-neutral-900 cursor-pointer" /></label></div>}
                   </div>
                 ))}
 
-                {bgPanels.length < 6 && (
-                  <label className="inline-flex items-center gap-2 text-[10px] font-semibold cursor-pointer select-none pt-0.5">
-                    <input type="checkbox" checked={false} onChange={addExtraBgPanel} className="w-3.5 h-3.5 rounded-full accent-neutral-900 cursor-pointer" />
-                    <span>Add another panel?</span>
-                  </label>
-                )}
-
-                <div className="pt-1 pb-2 flex flex-wrap gap-2">
-                  {isMotion ? (
+                <div className="pt-1 pb-2 flex flex-wrap items-center gap-2">
+                  {media.isMotion ? (
                     <>
-                      <button disabled={!!exportProgress} onClick={() => exportBgMp4OrGif("mp4")} className="px-4 py-1 rounded-full border-[1.5px] border-neutral-900 bg-white hover:bg-neutral-900 hover:text-white disabled:opacity-45 text-[11px] font-semibold cursor-pointer">Export .mp4</button>
-                      <button disabled={!!exportProgress} onClick={() => exportBgMp4OrGif("gif")} className="px-4 py-1 rounded-full border-[1.5px] border-neutral-900 bg-white hover:bg-neutral-900 hover:text-white disabled:opacity-45 text-[11px] font-semibold cursor-pointer">Export .gif</button>
+                      <button onClick={() => runMotionExport("mp4")} disabled={exportingMotion !== null} className="px-4 py-1 rounded-full border-[1.5px] border-neutral-900 bg-white hover:bg-neutral-900 hover:text-white disabled:opacity-50 text-[11px] font-semibold transition cursor-pointer">{exportingMotion?.fmt === "mp4" ? `Exporting .mp4 (${exportingMotion.pct}%)` : "Export .mp4"}</button>
+                      <button onClick={() => runMotionExport("gif")} disabled={exportingMotion !== null} className="px-4 py-1 rounded-full border-[1.5px] border-neutral-900 bg-white hover:bg-neutral-900 hover:text-white disabled:opacity-50 text-[11px] font-semibold transition cursor-pointer">{exportingMotion?.fmt === "gif" ? `Exporting .gif (${exportingMotion.pct}%)` : "Export .gif"}</button>
                     </>
                   ) : (
                     <>
-                      <button onClick={() => exportStaticBg("png")} className="px-4 py-1 rounded-full border-[1.5px] border-neutral-900 bg-white hover:bg-neutral-900 hover:text-white text-[11px] font-semibold cursor-pointer">Export .png</button>
-                      <button onClick={() => exportStaticBg("svg")} className="px-4 py-1 rounded-full border-[1.5px] border-neutral-900 bg-white hover:bg-neutral-900 hover:text-white text-[11px] font-semibold cursor-pointer">Export .svg</button>
+                      <button onClick={exportBgPng} className="px-4 py-1 rounded-full border-[1.5px] border-neutral-900 bg-white hover:bg-neutral-900 hover:text-white text-[11px] font-semibold transition cursor-pointer">Export .png</button>
+                      <button onClick={exportBgSvg} className="px-4 py-1 rounded-full border-[1.5px] border-neutral-900 bg-white hover:bg-neutral-900 hover:text-white text-[11px] font-semibold transition cursor-pointer">Export .svg</button>
                     </>
                   )}
                 </div>
@@ -589,30 +490,21 @@ export default function Page() {
           )}
         </div>
       ) : (
-        <div className="relative w-full max-w-[1200px] bg-white rounded-2xl shadow-xl overflow-hidden border border-neutral-200/90 flex flex-col">
-          {stickerHeaderSrc && <img src={stickerHeaderSrc} alt={stickerTheme} className="w-full h-auto block select-none pointer-events-none" />}
-          <div className="w-full bg-white py-3 px-6 flex flex-wrap items-center justify-center gap-2 border-b border-neutral-200">
-            {[
-              { id: "all", label: "All (80)" }, { id: "squares", label: "Squares (20)" },
-              { id: "horizontal", label: "Horizontal (20)" }, { id: "vertical", label: "Vertical (20)" },
-              { id: "pills", label: "CTA Pills (10)" }, { id: "circles", label: "Circles (10)" },
-            ].map((t) => (
-              <button key={t.id} onClick={() => { setStickerFilter(t.id); setOpenStickerKey(null); }} className={`px-3.5 py-1.5 rounded-full text-xs font-medium border cursor-pointer ${stickerFilter === t.id ? "bg-[#121317] text-white border-[#121317]" : "bg-white text-neutral-700 border-neutral-300 hover:border-neutral-900"}`}>{t.label}</button>
+        <div className="w-full max-w-[1180px] bg-white rounded-2xl shadow-xl overflow-hidden border border-neutral-200 flex flex-col">
+          <img src={theme === "grey1200" ? PAGE_ASSETS.stickerGrey1200 : theme === "white" ? PAGE_ASSETS.stickerWhite : PAGE_ASSETS.stickerImagery} alt="Sticker sheet header" className="w-full h-auto block select-none" />
+          <div className="w-full bg-white pt-1 pb-6 px-6 flex flex-wrap items-center justify-center gap-2">
+            {[{ id: "all", label: "All (80)" }, { id: "squares", label: "Squares (20)" }, { id: "horizontal", label: "Horizontal (20)" }, { id: "vertical", label: "Vertical (20)" }, { id: "pills", label: "CTA Pills (10)" }, { id: "circles", label: "Circles (10)" }].map((tab) => (
+              <button key={tab.id} onClick={() => { setStickerFilter(tab.id); setOpenStickerKey(null); }} className={`px-3.5 py-1.5 rounded-full text-xs font-medium border transition cursor-pointer ${stickerFilter === tab.id ? "bg-[#121317] text-white border-[#121317]" : "bg-white text-neutral-700 border-neutral-300 hover:border-neutral-900"}`}>{tab.label}</button>
             ))}
           </div>
-          <div className={`w-full px-6 sm:px-10 py-8 space-y-10 ${stickerTheme === "grey1200" ? "bg-[#121317] text-white" : stickerTheme === "white" ? "bg-[#F8F9FA] text-[#121317]" : "bg-[#1E272C] text-white"}`}>
-            {cats.map((cat) => (
+          <div className={`w-full px-6 sm:px-10 py-10 space-y-12 ${theme === "grey1200" ? "bg-[#121317] text-white" : theme === "white" ? "bg-[#F8F9FA] text-[#121317] border-t border-neutral-200" : "bg-[#1E272C] text-white"}`}>
+            {visibleCats.map((cat) => (
               <section key={cat.id} className="space-y-4">
-                <div className="flex items-baseline justify-between border-b pb-2 border-current/15">
-                  <h3 className="text-lg font-medium">{cat.title}</h3>
-                  <span className="text-xs opacity-60">{cat.count} sizes</span>
-                </div>
+                <div className="flex items-baseline justify-between border-b pb-2 border-current/15"><h3 className="text-lg font-medium">{cat.title}</h3><span className="text-xs opacity-60">{cat.count} sizes</span></div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                   {cat.sizes.map(([w, h]) => {
-                    const k = `${cat.id}-${w}x${h}`;
-                    return (
-                      <StickerCard key={k} width={w} height={h} shape={cat.shape} theme={stickerTheme} isOpen={openStickerKey === k} onToggle={(v) => setOpenStickerKey(v ? k : null)} onPng={(c, sz, sh) => saveCanvas(c, `sticker-${sh}-${stickerTheme}-${sz}.png`)} onSvg={(s, sz, sh) => saveSvg(s, `sticker-${sh}-${stickerTheme}-${sz}.svg`)} />
-                    );
+                    const key = `${cat.id}-${w}x${h}`;
+                    return <StickerSheetItem key={key} width={w} height={h} shape={cat.shape} theme={theme} isOpen={openStickerKey === key} onToggle={(open) => setOpenStickerKey(open ? key : null)} onDownload={downloadBlob} />;
                   })}
                 </div>
               </section>
@@ -620,6 +512,42 @@ export default function Page() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function StickerSheetItem({ width, height, shape, theme, isOpen, onToggle, onDownload }: { width: number; height: number; shape: PanelShape; theme: BackgroundTheme; isOpen: boolean; onToggle: (open: boolean) => void; onDownload: (blob: Blob, name: string) => void; }) {
+  const [thumb, setThumb] = useState("");
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    setThumb(""); const el = ref.current; if (!el) return;
+    let cancelled = false;
+    const obs = new IntersectionObserver((entries) => {
+      if (entries[0]?.isIntersecting && !cancelled) {
+        obs.disconnect();
+        const sc = Math.min(1, 210 / Math.max(width, height));
+        const c = renderStandaloneGlassPanel({ width: Math.max(20, Math.round(width * sc)), height: Math.max(20, Math.round(height * sc)), shape, theme, frostOpacity: 0.5, customRadius: Math.max(4, 20 * sc) });
+        if (!cancelled) setThumb(c.toDataURL("image/png"));
+      }
+    }, { rootMargin: "200px" });
+    obs.observe(el);
+    return () => { cancelled = true; obs.disconnect(); };
+  }, [width, height, shape, theme]);
+
+  return (
+    <div ref={ref} onClick={(e) => { e.stopPropagation(); onToggle(!isOpen); }} className={`relative group flex flex-col items-end justify-between gap-2 p-3.5 rounded-xl border transition cursor-pointer ${theme === "white" ? "border-neutral-200 hover:border-neutral-400 bg-white" : "border-white/10 hover:border-white/25 bg-white/[0.03]"}`}>
+      <div className="relative w-full h-28 flex items-center justify-center p-1">
+        {thumb ? <img src={thumb} alt={`${width}x${height}`} className="max-w-full max-h-full object-contain" /> : <div className="w-16 h-10 rounded bg-neutral-400/10 animate-pulse" />}
+        {isOpen && (
+          <div onClick={(e) => e.stopPropagation()} className="absolute inset-0 z-20 flex items-center justify-center p-2">
+            <div className="w-40 rounded-xl bg-white text-[#121317] shadow-xl border border-neutral-200 overflow-hidden divide-y divide-neutral-100">
+              <button onClick={() => { renderStandaloneGlassPanel({ width, height, shape, theme, frostOpacity: 0.5 }).toBlob((b) => b && onDownload(b, `sticker-${shape}-${theme}-${width}x${height}.png`), "image/png"); onToggle(false); }} className="w-full px-3.5 py-2.5 text-xs font-semibold text-left hover:bg-neutral-100 cursor-pointer">Export .png</button>
+              <button onClick={() => { onDownload(new Blob([generateStandaloneGlassSvg({ width, height, shape, theme, frostOpacity: 0.5 })], { type: "image/svg+xml;charset=utf-8" }), `sticker-${shape}-${theme}-${width}x${height}.svg`); onToggle(false); }} className="w-full px-3.5 py-2.5 text-xs font-semibold text-left hover:bg-neutral-100 cursor-pointer">Export .svg</button>
+            </div>
+          </div>
+        )}
+      </div>
+      <span className={`text-[11px] font-medium flex items-center gap-1.5 ${theme === "white" ? "text-neutral-700" : "text-neutral-300"}`}>{width}px X {height}px <Download className="w-3 h-3 opacity-60" /></span>
     </div>
   );
 }
