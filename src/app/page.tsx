@@ -358,7 +358,7 @@ export default function Page() {
           frostOpacity: opacitySlider / 100,
         }
       );
-      ctx.drawImage(patch, Math.round(panelPos.x), Math.round(panelPos.y));
+      ctx.drawImage(patch, Math.round(panelPos.x - (patch.width - parsedW) / 2), Math.round(panelPos.y - (patch.height - parsedH) / 2));
     }
   }, [
     screen,
@@ -495,7 +495,7 @@ export default function Page() {
           frostOpacity: opacitySlider / 100,
         }
       );
-      ctx.drawImage(patch, Math.round(panelPos.x), Math.round(panelPos.y));
+      ctx.drawImage(patch, Math.round(panelPos.x - (patch.width - parsedW) / 2), Math.round(panelPos.y - (patch.height - parsedH) / 2));
       downloadCanvas(out, `glass-composited-${uploadedBgDims.width}x${uploadedBgDims.height}.png`);
     }
   };
@@ -874,7 +874,7 @@ export default function Page() {
                   <input
                     type="range"
                     min={0}
-                    max={100}
+                    max={theme === "white" ? 130 : 100}
                     value={opacitySlider}
                     onChange={(e) => setOpacitySlider(Number(e.target.value))}
                     className="w-full accent-neutral-900 cursor-pointer h-1.5 bg-neutral-300 rounded-lg"
