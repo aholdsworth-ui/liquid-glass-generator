@@ -174,13 +174,96 @@ export function getShadowMetrics(w: number, h: number, theme: GlassTheme) {
   return { pad, offsetY, sigma, alpha: 0.25, r: 0, g: 0, b: 0 };
 }
 
+function traceRoundRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  rad: number
+) {
+  const rr = Math.max(0, Math.min(rad, Math.min(w, h) / 2));
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.lineTo(x + w - rr, y);
+  ctx.arc(x + w - rr, y + rr, rr, -Math.PI / 2, 0);
+  ctx.lineTo(x + w, y + h - rr);
+  ctx.arc(x + w - rr, y + h - rr, rr, 0, Math.PI / 2);
+  ctx.lineTo(x + rr, y + h);
+  ctx.arc(x + rr, y + h - rr, rr, Math.PI / 2, Math.PI);
+  ctx.lineTo(x, y + rr);
+  ctx.arc(x + rr, y + rr, rr, Math.PI, (Math.PI * 3) / 2);
+  ctx.closePath();
+}
+
+function strokeCrispGlassKeyline(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number,
+  theme: GlassTheme
+) {
+  ctx.save();
+  const minDim = Math.min(w, h);
+
+  if (theme === "grey1200") {
+    const sw = Math.max(1.25, Math.min(1.6, minDim * 0.018));
+    const half = sw * 0.5;
+    const grad = ctx.createLinearGradient(x, y, x + w, y + h);
+    grad.addColorStop(0, "rgba(255, 255, 255, 0.78)");
+    grad.addColorStop(0.45, "rgba(242, 245, 250, 0.58)");
+    grad.addColorStop(1, "rgba(255, 255, 255, 0.72)");
+    traceRoundRect(ctx, x + half, y + half, w - sw, h - sw, r - half);
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = sw;
+    ctx.stroke();
+  } else if (theme === "white") {
+    const sw = Math.max(1.15, Math.min(1.4, minDim * 0.016));
+    const half = sw * 0.5;
+    const innerIn = sw + 0.5;
+    if (w > innerIn * 2 + 2 && h > innerIn * 2 + 2) {
+      traceRoundRect(
+        ctx,
+        x + innerIn,
+        y + innerIn,
+        w - innerIn * 2,
+        h - innerIn * 2,
+        r - innerIn
+      );
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.55)";
+      ctx.lineWidth = 1.0;
+      ctx.stroke();
+    }
+    const grad = ctx.createLinearGradient(x, y, x + w, y + h);
+    grad.addColorStop(0, "rgba(194, 196, 195, 0.58)");
+    grad.addColorStop(0.5, "rgba(202, 204, 203, 0.50)");
+    grad.addColorStop(1, "rgba(186, 188, 187, 0.64)");
+    traceRoundRect(ctx, x + half, y + half, w - sw, h - sw, r - half);
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = sw;
+    ctx.stroke();
+  } else {
+    const sw = Math.max(1.15, Math.min(1.45, minDim * 0.016));
+    const half = sw * 0.5;
+    const grad = ctx.createLinearGradient(x, y, x + w, y + h);
+    grad.addColorStop(0, "rgba(255, 255, 255, 0.58)");
+    grad.addColorStop(0.5, "rgba(246, 247, 246, 0.42)");
+    grad.addColorStop(1, "rgba(255, 255, 255, 0.54)");
+    traceRoundRect(ctx, x + half, y + half, w - sw, h - sw, r - half);
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = sw;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 function evaluateGlassSurface(
   w: number,
   h: number,
-  uNorm: number,
   vNorm: number,
   inwardDist: number,
-  nx: number,
   ny: number,
   theme: GlassTheme,
   frostOpacity: number
@@ -189,18 +272,12 @@ function evaluateGlassSurface(
   const s = Math.max(0, Math.min(maxOp, frostOpacity));
   const minDim = Math.min(w, h);
 
-  // Directional weighting: strongest along base (ny > 0) and curved sides
   const topSuppression = 1.0 - 0.82 * Math.pow(Math.max(0, -ny), 1.35);
   const baseSideWeight = topSuppression * (0.84 + 0.16 * Math.max(0, ny));
   const glowWidth = Math.max(7.0, Math.min(26.0, minDim * 0.29));
   const glowFalloff = Math.exp(-Math.pow(inwardDist / glowWidth, 1.28));
   const innerGlow = baseSideWeight * glowFalloff;
 
-  const catchTL = Math.max(0, nx * -0.68 + ny * -0.73);
-  const catchBR = Math.max(0, nx * 0.55 + ny * 0.83);
-  const dirRim = 0.55 + 0.28 * catchTL + 0.22 * catchBR;
-
-  // 1. Neutral interior fill + Base & Sides inner glow
   let baseR = 250, baseG = 250, baseB = 249, baseA = 0;
   let glowA = 0;
 
@@ -209,9 +286,15 @@ function evaluateGlassSurface(
     baseA = Math.min(0.85, (0.07 + s * 0.50) * (0.96 + 0.06 * vNorm));
     glowA = innerGlow * (0.28 + 0.10 * Math.min(1, s));
   } else if (theme === "grey1200") {
+    // 100% slider = old 50% (sEff = 0.50), 50% slider = old 25% (sEff = 0.25)
+    const sEff = s * 0.5;
+    const floorScale = Math.min(1, s * 4);
     baseR = 246; baseG = 246; baseB = 247;
-    baseA = Math.min(0.56, (0.035 + s * 0.19) * (0.95 + 0.08 * vNorm));
-    glowA = innerGlow * 0.095;
+    baseA = Math.min(
+      0.56,
+      (0.035 * floorScale + sEff * 0.19) * (0.95 + 0.08 * vNorm)
+    );
+    glowA = innerGlow * 0.095 * (0.35 + 0.65 * floorScale);
   } else {
     baseR = 252; baseG = 252; baseB = 250;
     baseA = Math.min(0.68, (0.05 + s * 0.34) * (0.96 + 0.06 * vNorm));
@@ -219,47 +302,12 @@ function evaluateGlassSurface(
   }
 
   const fA = glowA + baseA * (1 - glowA);
-  let fR = 255, fG = 255, fB = 255;
-  if (fA > 0.0001) {
-    fR = (255 * glowA + baseR * baseA * (1 - glowA)) / fA;
-    fG = (255 * glowA + baseG * baseA * (1 - glowA)) / fA;
-    fB = (255 * glowA + baseB * baseA * (1 - glowA)) / fA;
-  }
-
-  // 2. Thin, sharp exterior hairline keyline
-  let bR = 255, bG = 255, bB = 255, bA = 0;
-
-  if (theme === "white") {
-    const outerHair = 1 - smoothstep(0.30, 1.02, inwardDist);
-    const innerKiss =
-      smoothstep(0.45, 0.95, inwardDist) *
-      (1 - smoothstep(1.0, 1.85, inwardDist));
-    const oA = outerHair * 0.38;
-    const iA = innerKiss * 0.24;
-    bA = Math.min(0.62, oA + iA);
-    if (bA > 0.001) {
-      const ow = oA / bA;
-      bR = Math.round(214 * ow + 255 * (1 - ow));
-      bG = Math.round(215 * ow + 255 * (1 - ow));
-      bB = Math.round(214 * ow + 255 * (1 - ow));
-    }
-  } else if (theme === "grey1200") {
-    const edge = 1 - smoothstep(0.42, 1.18, inwardDist);
-    bR = 248; bG = 249; bB = 250;
-    bA = Math.min(0.72, edge * (0.38 + 0.24 * dirRim));
-  } else {
-    const edge = 1 - smoothstep(0.32, 1.06, inwardDist);
-    bR = 246; bG = 247; bB = 246;
-    bA = Math.min(0.56, edge * (0.32 + 0.18 * dirRim));
-  }
-
-  const outA = bA + fA * (1 - bA);
-  if (outA <= 0.0001) return [255, 255, 255, 0];
+  if (fA <= 0.0001) return [255, 255, 255, 0];
   return [
-    (bR * bA + fR * fA * (1 - bA)) / outA,
-    (bG * bA + fG * fA * (1 - bA)) / outA,
-    (bB * bA + fB * fA * (1 - bA)) / outA,
-    outA,
+    (255 * glowA + baseR * baseA * (1 - glowA)) / fA,
+    (255 * glowA + baseG * baseA * (1 - glowA)) / fA,
+    (255 * glowA + baseB * baseA * (1 - glowA)) / fA,
+    fA,
   ];
 }
 
@@ -312,10 +360,9 @@ export function renderStandaloneGlassPanel({
         data[i + 3] = Math.round(shA * 255);
         continue;
       }
-      const uNorm = Math.max(0, Math.min(1, (x - pad) / Math.max(1, w - 1)));
-      const [nx, ny] = sdRoundBoxNormal(px, py, bx, by, r);
+      const [, ny] = sdRoundBoxNormal(px, py, bx, by, r);
       const [sR, sG, sB, sA] = evaluateGlassSurface(
-        w, h, uNorm, vNorm, Math.max(0, -d), nx, ny, theme, frostOpacity
+        w, h, vNorm, Math.max(0, -d), ny, theme, frostOpacity
       );
       const gA = sA * mA;
       const totA = gA + shA;
@@ -328,6 +375,7 @@ export function renderStandaloneGlassPanel({
     }
   }
   ctx.putImageData(img, 0, 0);
+  strokeCrispGlassKeyline(ctx, pad, pad, w, h, r, theme);
   return canvas;
 }
 
@@ -342,15 +390,19 @@ export function generateStandaloneGlassSvg({
   const h = Math.max(16, Math.round(height));
   const r = getCornerRadius(w, h, shape, 20);
   const s = Math.max(0, Math.min(theme === "white" ? 1.35 : 1.0, frostOpacity));
+  const sEff = theme === "grey1200" ? s * 0.5 : s;
   const sh = getShadowMetrics(w, h, theme);
   const p = sh.pad;
   const tw = w + p * 2, th = h + p * 2;
 
   const baseA =
-    theme === "grey1200" ? 0.035 + s * 0.19
-    : theme === "white" ? Math.min(0.85, 0.07 + s * 0.50)
-    : 0.05 + s * 0.34;
-  const fCol = theme === "white" ? "#F4F4F3" : theme === "grey1200" ? "#F6F6F7" : "#FCFCFA";
+    theme === "grey1200"
+      ? 0.035 * Math.min(1, s * 4) + sEff * 0.19
+      : theme === "white"
+      ? Math.min(0.85, 0.07 + s * 0.50)
+      : 0.05 + s * 0.34;
+  const fCol =
+    theme === "white" ? "#F4F4F3" : theme === "grey1200" ? "#F6F6F7" : "#FCFCFA";
   const op1 = Math.min(0.86, baseA * 0.96).toFixed(3);
   const op2 = Math.min(0.86, baseA * 1.02).toFixed(3);
 
@@ -361,8 +413,23 @@ export function generateStandaloneGlassSvg({
   const glowMid =
     theme === "grey1200" ? "0.11" : theme === "white" ? "0.34" : "0.28";
 
-  const rimColor = theme === "white" ? "#D8D9D8" : "#F8F9F8";
-  const rimOp = theme === "white" ? "0.44" : theme === "grey1200" ? "0.56" : "0.46";
+  const sw =
+    theme === "grey1200"
+      ? Math.max(1.25, Math.min(1.6, Math.min(w, h) * 0.018))
+      : Math.max(1.15, Math.min(1.4, Math.min(w, h) * 0.016));
+  const half = sw * 0.5;
+  const rimStops =
+    theme === "grey1200"
+      ? `<stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.78" />
+      <stop offset="45%" stop-color="#F2F5FA" stop-opacity="0.58" />
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.72" />`
+      : theme === "white"
+      ? `<stop offset="0%" stop-color="#C2C4C3" stop-opacity="0.58" />
+      <stop offset="50%" stop-color="#CACCCB" stop-opacity="0.50" />
+      <stop offset="100%" stop-color="#BABCB9" stop-opacity="0.64" />`
+      : `<stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.58" />
+      <stop offset="50%" stop-color="#F6F7F6" stop-opacity="0.42" />
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.54" />`;
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${tw}" height="${th}"
@@ -391,6 +458,9 @@ export function generateStandaloneGlassSvg({
       <stop offset="45%" stop-color="#FFFFFF" stop-opacity="${glowMid}" />
       <stop offset="100%" stop-color="#FFFFFF" stop-opacity="${glowPeak}" />
     </linearGradient>
+    <linearGradient id="rim-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      ${rimStops}
+    </linearGradient>
   </defs>
   <g mask="url(#sh-mask)">
     <rect x="0" y="${sh.offsetY.toFixed(2)}" width="${w}" height="${h}"
@@ -403,10 +473,11 @@ export function generateStandaloneGlassSvg({
     <rect x="0" y="0" width="${w}" height="${h}" rx="${r}" fill="none"
       stroke="url(#base-side-glow)" stroke-width="${glowStroke.toFixed(1)}"
       filter="url(#glow-blur)" />
-    <rect x="0.5" y="0.5" width="${w - 1}" height="${h - 1}"
-      rx="${Math.max(0, r - 0.5)}" fill="none"
-      stroke="${rimColor}" stroke-opacity="${rimOp}" stroke-width="1" />
   </g>
+  <rect x="${half.toFixed(2)}" y="${half.toFixed(2)}"
+    width="${(w - sw).toFixed(2)}" height="${(h - sw).toFixed(2)}"
+    rx="${Math.max(0, r - half).toFixed(2)}" fill="none"
+    stroke="url(#rim-grad)" stroke-width="${sw.toFixed(2)}" />
 </svg>`;
 }
 
@@ -428,7 +499,9 @@ export function generateCompositedGlassSvg(
   const h = Math.max(24, Math.round(config.height));
   const r = getCornerRadius(w, h, config.shape, 20);
   const px = Math.round(panelX), py = Math.round(panelY);
-  const blurPx = (7.5 + config.frostOpacity * 10.0).toFixed(1);
+  const effOp =
+    config.theme === "grey1200" ? config.frostOpacity * 0.5 : config.frostOpacity;
+  const blurPx = (7.5 + effOp * 10.0).toFixed(1);
 
   const inner = generateStandaloneGlassSvg(config)
     .replace(/<\?xml.*?\?>\s*/g, "")
@@ -485,7 +558,9 @@ export function renderRefractedGlassPatch(
   const blur = document.createElement("canvas");
   blur.width = sw; blur.height = shH;
   const bCtx = blur.getContext("2d", { willReadFrequently: true })!;
-  const blurPx = 7.5 + config.frostOpacity * 10.0;
+  const effOp =
+    config.theme === "grey1200" ? config.frostOpacity * 0.5 : config.frostOpacity;
+  const blurPx = 7.5 + effOp * 10.0;
   bCtx.filter = `blur(${blurPx.toFixed(1)}px) saturate(102%)`;
   bCtx.drawImage(sharp, 0, 0);
   bCtx.filter = "none";
@@ -549,7 +624,6 @@ export function renderRefractedGlassPatch(
       }
 
       const lx = x - outPad, ly = y - outPad;
-      const uNorm = Math.max(0, Math.min(1, lx / Math.max(1, w - 1)));
       const inDist = Math.max(0, -d);
       const [nx, ny] = sdRoundBoxNormal(px, py, bx, by, r);
       const lens = Math.pow(Math.max(0, 1 - inDist / mZone), 2.2);
@@ -565,7 +639,7 @@ export function renderRefractedGlassPatch(
       const rB = brB * (1 - ec) + sB0 * ec;
 
       const [sfR, sfG, sfB, sfA] = evaluateGlassSurface(
-        w, h, uNorm, vNorm, inDist, nx, ny, config.theme, config.frostOpacity
+        w, h, vNorm, inDist, ny, config.theme, config.frostOpacity
       );
       const gR = sfR * sfA + rR * (1 - sfA);
       const gG = sfG * sfA + rG * (1 - sfA);
@@ -580,5 +654,6 @@ export function renderRefractedGlassPatch(
     }
   }
   oCtx.putImageData(oImg, 0, 0);
+  strokeCrispGlassKeyline(oCtx, outPad, outPad, w, h, r, config.theme);
   return out;
 }
