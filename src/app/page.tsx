@@ -6,7 +6,7 @@ import { PAGE_ASSETS, BG_ASSETS, BUTTON_ZONES, GFS_MOMENTUM_DRIVE_URL, ZoneRect 
 import { PanelShape, BackgroundTheme, STICKER_CATEGORIES, renderStandaloneGlassPanel, generateStandaloneGlassSvg, renderRefractedGlassPatch } from "@/lib/liquidGlassEngine";
 import { LoadedMedia, PanelInstance, loadUniversalMediaFile, getMediaFrameAt, renderFrameWithPanels, exportMultiPanelSvg, exportCompositedMp4 } from "@/lib/mediaSupport";
 import { exportCompositedGif } from "@/lib/gifStudioEncoder";
-import { GFS_MOMENTUM_FOLDER_ID, DriveItem, getConfiguredGoogleClientId, getDriveAccessToken, listDriveFolderItems, downloadDriveFileDirect } from "@/lib/driveDirectPicker";
+import { GFS_MOMENTUM_FOLDER_ID, DriveItem, getConfiguredGoogleClientId, getDriveAccessToken, listDriveFolderItems, downloadDriveFileDirect , MomentumDropzoneModal } from "@/lib/driveDirectPicker";
 
 type ScreenId = "home" | "slides-pre" | "slides-create-cover" | "slides-fullbleed" | "slides-workspace" | "sticker-cover" | "sticker-sheet" | "bg-upload-cover" | "bg-workspace";
 type ResizePreset = "no-resize" | "1:1" | "4:5" | "9:16" | "16:9" | "custom";
@@ -418,98 +418,7 @@ export default function Page() {
         </div>
       </div>
 
-      {showMomentumModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => !driveDownloadStatus && setShowMomentumModal(false)}>
-          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-neutral-200 overflow-hidden flex flex-col max-h-[84vh]">
-            <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between">
-              <div>
-                <h3 className="text-base font-semibold">GFS Momentum Assets — Direct Google Drive Import</h3>
-                <p className="text-xs text-neutral-500">Click any .mp4, .psd, .gif, .png, .jpeg, or motion/image asset below to load straight into the app.</p>
-              </div>
-              <button onClick={() => !driveDownloadStatus && setShowMomentumModal(false)} className="p-1.5 text-neutral-400 hover:text-black cursor-pointer"><X className="w-4 h-4" /></button>
-            </div>
-
-            {!activeClientId || (!driveToken && !driveLoading) ? (
-              <div className="p-6 space-y-4">
-                {!process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID && (
-                  <div className="space-y-1.5 bg-neutral-50 border border-neutral-200 rounded-xl p-4">
-                    <label className="text-xs font-semibold block">One-Time Setup: Google OAuth Web Client ID</label>
-                    <p className="text-[11px] text-neutral-600">Paste your Google Cloud Web Client ID below (or set <code>NEXT_PUBLIC_GOOGLE_CLIENT_ID</code> in Vercel so teammates never see this step):</p>
-                    <div className="flex gap-2 pt-1">
-                      <input type="text" placeholder="123456789-abc...apps.googleusercontent.com" value={clientIdInput} onChange={(e) => setClientIdInput(e.target.value)} className="flex-1 h-8 px-2.5 text-xs border border-neutral-300 rounded-lg bg-white" />
-                      <button onClick={() => openMomentumDriveBrowser(clientIdInput)} className="px-4 h-8 rounded-lg bg-[#121317] text-white text-xs font-semibold cursor-pointer">Connect Drive</button>
-                    </div>
-                  </div>
-                )}
-                {process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID && (
-                  <button onClick={() => openMomentumDriveBrowser()} className="w-full py-3 rounded-xl bg-[#121317] text-white text-xs font-semibold cursor-pointer hover:bg-neutral-800 transition">Sign in with Google to browse GFS Momentum Folder</button>
-                )}
-                {driveError && <p className="text-xs text-red-600 font-medium">{driveError}</p>}
-                <div className="pt-2 border-t border-neutral-100 flex items-center justify-between text-xs text-neutral-500">
-                  <button onClick={() => fileInputRef.current?.click()} className="underline hover:text-black cursor-pointer">Or choose a local file from your computer</button>
-                  <a href={GFS_MOMENTUM_DRIVE_URL} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:underline">Open folder in Google Drive <ExternalLink className="w-3 h-3" /></a>
-                </div>
-              </div>
-            ) : (
-              <>
-                <div className="px-5 py-2.5 bg-neutral-50 border-b border-neutral-200 flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-1 text-xs font-medium overflow-x-auto">
-                    {driveStack.map((crumb, idx) => (
-                      <React.Fragment key={crumb.id}>
-                        {idx > 0 && <ChevronRight className="w-3.5 h-3.5 text-neutral-400 shrink-0" />}
-                        <button onClick={() => navigateDriveFolder(crumb.id, crumb.name, idx)} className={`hover:underline cursor-pointer truncate max-w-[160px] ${idx === driveStack.length - 1 ? "font-semibold text-black" : "text-neutral-600"}`}>{crumb.name}</button>
-                      </React.Fragment>
-                    ))}
-                  </div>
-                  <div className="relative w-48">
-                    <Search className="w-3.5 h-3.5 text-neutral-400 absolute left-2.5 top-2" />
-                    <input type="text" placeholder="Filter files..." value={driveSearch} onChange={(e) => setDriveSearch(e.target.value)} className="w-full h-7 pl-8 pr-2 text-xs bg-white border border-neutral-300 rounded-lg" />
-                  </div>
-                </div>
-
-                <div className="p-5 overflow-y-auto flex-1 min-h-[280px]">
-                  {driveDownloadStatus ? (
-                    <div className="h-56 flex flex-col items-center justify-center gap-3 text-center">
-                      <div className="w-8 h-8 rounded-full border-2 border-neutral-300 border-t-[#121317] animate-spin" />
-                      <p className="text-xs font-semibold">{driveDownloadStatus}</p>
-                      <p className="text-[11px] text-neutral-500">Streaming directly into workspace (no local download required)</p>
-                    </div>
-                  ) : driveLoading ? (
-                    <div className="h-56 flex items-center justify-center text-xs text-neutral-500">Loading GFS Momentum folder...</div>
-                  ) : driveError ? (
-                    <div className="space-y-3 text-center py-10">
-                      <p className="text-xs text-red-600 font-medium">{driveError}</p>
-                      <button onClick={() => openMomentumDriveBrowser()} className="px-4 py-1.5 rounded-full bg-[#121317] text-white text-xs cursor-pointer">Retry</button>
-                    </div>
-                  ) : filteredDriveItems.length === 0 ? (
-                    <p className="text-xs text-neutral-500 text-center py-12">No matching image, PSD, or motion files in this folder.</p>
-                  ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                      {filteredDriveItems.map((it) => (
-                        <button key={it.id} type="button" onClick={() => selectMomentumDriveItem(it)} className="group text-left p-2.5 rounded-xl border border-neutral-200 hover:border-[#121317] hover:shadow-sm transition flex flex-col gap-2 cursor-pointer bg-white">
-                          <div className="w-full h-24 rounded-lg bg-neutral-100 flex items-center justify-center overflow-hidden relative">
-                            {it.isFolder ? (
-                              <Folder className="w-9 h-9 text-amber-500 fill-amber-100" />
-                            ) : it.thumbnailLink ? (
-                              <img src={it.thumbnailLink} alt={it.name} className="w-full h-full object-cover group-hover:scale-105 transition" referrerPolicy="no-referrer" />
-                            ) : (
-                              <span className="text-[11px] font-bold uppercase text-neutral-500">{it.name.split(".").pop()}</span>
-                            )}
-                          </div>
-                          <div className="w-full">
-                            <p className="text-[11px] font-medium truncate text-[#121317]" title={it.name}>{it.name}</p>
-                            <p className="text-[10px] text-neutral-400">{it.isFolder ? "Folder" : (it.name.split(".").pop() || "Asset").toUpperCase()}</p>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+      {showMomentumModal && <MomentumDropzoneModal onClose={() => setShowMomentumModal(false)} onSelectFile={async (f: File) => { setShowMomentumModal(false); applyLoadedMedia(await loadUniversalMediaFile(f)); }} />}
 
       {screen !== "sticker-sheet" ? (
         <div className="relative w-full max-w-[1180px] aspect-[16/9] bg-white rounded-2xl shadow-xl overflow-hidden border border-neutral-200">
