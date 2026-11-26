@@ -175,14 +175,15 @@ export default function Page() {
         if (pw >= 24 && ph >= 24) {
           const patch = renderRefractedGlassPatch(bg, width, height, slidePos.x, slidePos.y, { width: pw, height: ph, shape: slideShape, theme, frostOpacity: slideOpacity / 100 });
           ctx.drawImage(patch, Math.round(slidePos.x - (patch.width - pw) / 2), Math.round(slidePos.y - (patch.height - ph) / 2));
-    drawPanelHandlesOnCtx(ctx, slidePos.x, slidePos.y, pw, ph, Math.max(width, height) / 430, dragRef.current.kind === "slide-resize", slideShape === "circle" ? `${pw} px \u2300` : `${pw} \u00D7 ${ph} px`);
+    if (Number(visualGuide) > 0) { const __cw = c.clientWidth || 460, __ch = c.clientHeight || Math.round(__cw * height / width); ctx.save(); ctx.scale(width / __cw, height / __ch); drawVisualGuideGrid(ctx, 0, 0, 0, __cw, __ch, visualGuide); ctx.restore(); }
+              drawPanelHandlesOnCtx(ctx, slidePos.x, slidePos.y, pw, ph, Math.max(width, height) / 430, dragRef.current.kind === "slide-resize", slideShape === "circle" ? `${pw} px \u2300` : `${pw} \u00D7 ${ph} px`);
         }
       }
       raf = requestAnimationFrame(render);
     };
     raf = requestAnimationFrame(render);
     return () => cancelAnimationFrame(raf);
-  }, [screen, slideFormat, slideW, slideH, slideShape, theme, slideOpacity, slidePos, holdingMedia]);
+  }, [screen, slideFormat, slideW, slideH, slideShape, theme, slideOpacity, slidePos, holdingMedia, visualGuide]);
 
   useEffect(() => {
     if (screen !== "bg-workspace" || !media) return;
@@ -649,12 +650,13 @@ const fw = frameDims.width, fh = frameDims.height, sw = media.width * mediaScale
                   className="max-w-full max-h-full object-contain shadow-sm cursor-grab active:cursor-grabbing"
                 />
               </div>
-              <div className="absolute z-10 left-[50%] right-[6%] top-[55%] bottom-[4%] flex flex-col gap-2">
+              <div className="absolute z-10 left-[50%] right-[6%] top-[54.5%] bottom-[3.5%] overflow-y-auto pr-2 flex flex-col gap-1.5">
                 <div className="flex flex-wrap items-end gap-3">
                   <div className="flex flex-col gap-0.5"><label className="text-[10px] font-semibold">Format</label><select value={slideFormat} onChange={(e) => setSlideFormat(e.target.value as any)} className="h-7 px-2 text-[11px] bg-white border border-neutral-800 rounded-md"><option value="16:9-slides">16:9 Slides (960x540px)</option><option value="1:1">1:1</option><option value="4:5">4:5</option><option value="9:16">9:16</option><option value="16:9">16:9</option></select></div>
                   <div className="flex flex-col gap-0.5"><label className="text-[10px] font-semibold">Shape</label><select value={slideShape} onChange={(e) => setSlideShape(e.target.value as PanelShape)} className="h-7 px-2 text-[11px] bg-white border border-neutral-800 rounded-md"><option value="text-panel">Text panel</option><option value="circle">Circle</option><option value="cta-pill">CTA pill</option></select></div>
                   {holdingMedia && <div className="flex flex-col gap-0.5"><label className="text-[10px] font-semibold">Rim calibration</label><select value={theme} onChange={(e) => { const nt = e.target.value as BackgroundTheme; setTheme(nt); setSlideOpacity(nt === "white" ? 80 : nt === "grey1200" ? 40 : 35); }} className="h-7 px-2 text-[11px] font-medium bg-white border border-neutral-800 rounded-md"><option value="imagery">Full bleed image</option><option value="grey1200">Grey 1200</option><option value="white">White</option></select></div>}
                 </div>
+                <div className="flex flex-col gap-1 max-w-[260px] py-0.5"><label className="text-[11px] font-semibold text-[#121317] leading-tight">Visual guide</label><div className="flex items-center gap-2"><span onClick={() => setVisualGuide(0)} className={`text-[10px] whitespace-nowrap select-none cursor-pointer ${visualGuide === 0 ? "font-semibold text-[#121317]" : "text-neutral-500"}`}>Grid off</span><input type="range" min={0} max={100} step={1} value={visualGuide} onChange={(e) => setVisualGuide(Number(e.target.value))} aria-label="Visual guide" className="w-full accent-[#121317] cursor-pointer h-1.5 bg-neutral-300 rounded-lg" /><span onClick={() => setVisualGuide(100)} className={`text-[10px] whitespace-nowrap select-none cursor-pointer ${visualGuide === 100 ? "font-semibold text-[#121317]" : "text-neutral-500"}`}>Max</span></div></div>
                 <div className="flex flex-col gap-0.5"><label className="text-[10px] font-semibold">Size</label><div className="flex items-center gap-2 text-[11px]"><input type="number" min={24} max={4000} value={slideW} onChange={(e) => setSlideW(e.target.value)} className="w-[72px] h-7 px-2 bg-white border border-neutral-800 rounded-md" /><span>{slideShape === "circle" ? "px diameter" : "px wide x"}</span>{slideShape !== "circle" && <><input type="number" min={24} max={4000} value={slideH} onChange={(e) => setSlideH(e.target.value)} className="w-[72px] h-7 px-2 bg-white border border-neutral-800 rounded-md" /><span>px high</span></>}</div></div>
                 <div className="flex flex-col gap-0.5 max-w-[260px]"><div className="flex justify-between text-[10px]"><span className="font-semibold">Opacity</span><span className="text-neutral-500">{slideOpacity}%</span></div><input type="range" min={0} max={100} value={slideOpacity} onChange={(e) => setSlideOpacity(Number(e.target.value))} className="w-full accent-neutral-900 h-1.5 bg-neutral-300 rounded-lg cursor-pointer" /></div>
                 <div className="pt-1 flex items-center gap-2">
