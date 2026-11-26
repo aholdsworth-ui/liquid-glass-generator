@@ -363,10 +363,10 @@ export default function Page() {
     setExportingMotion({ fmt, pct: 0 });
     try {
       if (fmt === "mp4") {
-        const blob = await exportCompositedMp4(media, fw, fh, mx, my, sw, sh, panels, bgOpacity / 100, (pct) => setExportingMotion({ fmt: "mp4", pct }));
+        const blob = await exportCompositedMp4(media, fw, fh, mx, my, sw, sh, panels, bgOpacity / 100, (pct: number) => setExportingMotion({ fmt: "gif", pct }));
         downloadBlob(blob, `glass-motion-${Math.round(fw / 2) * 2}x${Math.round(fh / 2) * 2}.mp4`);
       } else {
-        const blob = await exportCompositedGif(media, fw, fh, mx, my, sw, sh, panels, bgOpacity / 100, (pct) => setExportingMotion({ fmt: "gif", pct }));
+        const blob = await exportCompositedGif(media, fw, fh, mx, my, sw, sh, panels, bgOpacity / 100, (pct: number) => setExportingMotion({ fmt: "gif", pct }));
         downloadBlob(blob, `glass-motion-${fw}x${fh}.gif`);
       }
     } catch { showToast(`Could not encode .${fmt} in this browser`); }

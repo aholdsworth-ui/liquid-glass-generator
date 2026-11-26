@@ -1,99 +1,129 @@
-export function buildStudioPalette256(samples: number[][]): number[][] {
-  const pinned: number[][] = [
-    [18, 19, 23], [255, 255, 255], [248, 249, 250], [241, 243, 244],
-  ];
-  for (let i = 0; i < 32; i++) {
-    const v = i < 22 ? 22 + i * 5 : 135 + (i - 22) * 12;
-    pinned.push([v, v + (i < 20 ? 1 : 0), Math.min(255, v + 3)]);
+const BAYER8 = [
+   0, 32,  8, 40,  2, 34, 10, 42,
+  48, 16, 56, 24, 50, 18, 58, 26,
+  12, 44,  4, 36, 14, 46,  6, 38,
+  60, 28, 52, 20, 62, 30, 54, 22,
+   3, 35, 11, 43,  1, 33,  9, 41,
+  51, 19, 59, 27, 49, 17, 57, 25,
+  15, 47,  7, 39, 13, 45,  5, 37,
+  63, 31, 55, 23, 61, 29, 53, 21,
+];
+
+export function buildPalette24(samples: number[][]): number[][] {
+  const pal: number[][] = [[18, 19, 23], [255, 255, 255], [0, 0, 0]];
+  for (let i = 1; i <= 17; i++) {
+    const v = Math.round(24 + (i * 222) / 18);
+    pal.push([v, v, Math.min(255, v + 1)]);
   }
-  const cents = pinned.map((c) => [c[0], c[1], c[2]]);
-  if (!samples.length) {
-    while (cents.length < 256) cents.push([128, 128, 128]);
-    return cents;
+  const need = 256 - pal.length;
+  const map = new Map<number, number[]>();
+  for (let i = 0; i < samples.length; i++) {
+    const r = samples[i][0], g = samples[i][1], b = samples[i][2];
+    if (Math.abs(r - 18) <= 3 && Math.abs(g - 19) <= 3 && Math.abs(b - 23) <= 3) continue;
+    if (r >= 252 && g >= 252 && b >= 252) continue;
+    const key = ((r >> 1) << 14) | ((g >> 1) << 7) | (b >> 1);
+    const cur = map.get(key);
+    if (cur) cur[3]++;
+    else map.set(key, [r, g, b, 1]);
   }
-  const minD = new Float32Array(samples.length).fill(1e9);
-  const upd = (c: number[]) => {
-    for (let i = 0; i < samples.length; i++) {
-      const s = samples[i];
-      const d = (s[0]-c[0])**2 + (s[1]-c[1])**2 + (s[2]-c[2])**2;
+  const all = Array.from(map.values());
+  if (all.length === 0) {
+    while (pal.length < 256) pal.push([128, 128, 128]);
+    return pal;
+  }
+  all.sort((a, b) => b[3] - a[3]);
+  const pts = all.slice(0, 3500);
+  const m = pts.length;
+  const minD = new Float64Array(m).fill(1e12);
+  const cents: number[][] = [];
+  for (let k = 0; k < need; k++) {
+    let pick = 0, bestS = -1;
+    for (let i = 0; i < m; i++) {
+      const sc = minD[i] * Math.sqrt(pts[i][3]);
+      if (sc > bestS) { bestS = sc; pick = i; }
+    }
+    const c = [pts[pick][0], pts[pick][1], pts[pick][2]];
+    cents.push(c);
+    for (let i = 0; i < m; i++) {
+      const dr = pts[i][0] - c[0], dg = pts[i][1] - c[1], db = pts[i][2] - c[2];
+      const d = dr * dr + dg * dg + db * db;
       if (d < minD[i]) minD[i] = d;
     }
-  };
-  for (const p of cents) upd(p);
-  while (cents.length < 256) {
-    let sum = 0, pick = 0;
-    for (let i = 0; i < minD.length; i++) sum += minD[i];
-    if (sum <= 1) { cents.push([128, 128, 128]); continue; }
-    let r = ((cents.length * 0.618034) % 1) * sum;
-    for (let i = 0; i < minD.length; i++) {
-      if ((r -= minD[i]) <= 0) { pick = i; break; }
-    }
-    const c = [...samples[pick]];
-    cents.push(c); upd(c);
   }
-  const pLen = pinned.length, sums = new Float64Array(1024);
-  for (let it = 0; it < 8; it++) {
+  const sums = new Float64Array(need * 3);
+  const wts = new Float64Array(need);
+  for (let it = 0; it < 5; it++) {
     sums.fill(0);
-    for (let i = 0; i < samples.length; i++) {
-      const s = samples[i];
-      let bi = 0, bd = 1e9;
-      for (let c = 0; c < 256; c++) {
-        const p = cents[c];
-        const d = (s[0]-p[0])**2 + (s[1]-p[1])**2 + (s[2]-p[2])**2;
-        if (d < bd) { bd = d; bi = c; }
+    wts.fill(0);
+    for (let i = 0; i < m; i++) {
+      const r = pts[i][0], g = pts[i][1], b = pts[i][2], w = pts[i][3];
+      let best = 0, bd = 1e12;
+      for (let k = 0; k < need; k++) {
+        const dr = r - cents[k][0], dg = g - cents[k][1], db = b - cents[k][2];
+        const d = dr * dr + dg * dg + db * db;
+        if (d < bd) { bd = d; best = k; }
       }
-      const o = bi * 4;
-      sums[o]+=s[0]; sums[o+1]+=s[1]; sums[o+2]+=s[2]; sums[o+3]+=1;
+      wts[best] += w;
+      sums[best * 3] += r * w;
+      sums[best * 3 + 1] += g * w;
+      sums[best * 3 + 2] += b * w;
     }
-    for (let c = pLen; c < 256; c++) {
-      const n = sums[c * 4 + 3];
-      if (n > 0) {
-        cents[c] = [sums[c*4]/n, sums[c*4+1]/n, sums[c*4+2]/n];
+    for (let k = 0; k < need; k++) {
+      if (wts[k] > 0) {
+        cents[k][0] = sums[k * 3] / wts[k];
+        cents[k][1] = sums[k * 3 + 1] / wts[k];
+        cents[k][2] = sums[k * 3 + 2] / wts[k];
       }
     }
   }
-  return cents.map((c) => c.map((v) => Math.max(0, Math.min(255, Math.round(v)))));
-}
-export function findPair(pal: number[][], r: number, g: number, b: number): number {
-  let c1 = 0, d1 = 1e9;
-  for (let i = 0; i < 256; i++) {
-    const p = pal[i];
-    const d = (r-p[0])**2 + (g-p[1])**2 + (b-p[2])**2;
-    if (d < d1) { d1 = d; c1 = i; }
+  for (let k = 0; k < need; k++) {
+    pal.push([Math.round(cents[k][0]), Math.round(cents[k][1]), Math.round(cents[k][2])]);
   }
-  const A = pal[c1];
-  let c2 = c1, best = d1;
-  for (let i = 0; i < 256; i++) {
-    if (i === c1) continue;
-    const B = pal[i];
-    const dx = B[0]-A[0], dy = B[1]-A[1], dz = B[2]-A[2];
-    const l2 = dx*dx + dy*dy + dz*dz;
-    if (l2 < 4) continue;
-    const t = Math.max(0, Math.min(1, ((r-A[0])*dx + (g-A[1])*dy + (b-A[2])*dz) / l2));
-    const er = (r-(A[0]+dx*t))**2 + (g-(A[1]+dy*t))**2 + (b-(A[2]+dz*t))**2 + l2*0.04;
-    if (er < best) { best = er; c2 = i; }
-  }
-  return c1 | (c2 << 8);
+  return pal;
 }
-export function ditherFrameIgn(
-  rgba: Uint8ClampedArray, w: number, h: number, pal: number[][], lut: Int32Array
+
+type Lut = { c1: Int16Array; c2: Int16Array; mix: Uint8Array };
+const LUTS = new WeakMap<number[][], Lut>();
+export function ditherFrameBlueNoise(
+  rgba: Uint8ClampedArray,
+  w: number,
+  h: number,
+  pal: number[][]
 ): Uint8Array {
+  let lut = LUTS.get(pal);
+  if (!lut) {
+    lut = { c1: new Int16Array(262144).fill(-1), c2: new Int16Array(262144), mix: new Uint8Array(262144) };
+    LUTS.set(pal, lut);
+  }
+  const { c1, c2, mix } = lut;
   const out = new Uint8Array(w * h);
+  const pLen = pal.length;
   for (let y = 0; y < h; y++) {
+    const row = (y & 7) << 3;
     for (let x = 0; x < w; x++) {
-      const idx = y * w + x, p = idx * 4;
-      const r = rgba[p], g = rgba[p+1], b = rgba[p+2];
-      const cell = ((r>>3)<<10) | ((g>>3)<<5) | (b>>3);
-      let pk = lut[cell];
-      if (pk < 0) pk = lut[cell] = findPair(pal, (r&248)+4, (g&248)+4, (b&248)+4);
-      const i1 = pk & 255, i2 = (pk >> 8) & 255;
-      const A = pal[i1], B = pal[i2];
-      const dx = B[0]-A[0], dy = B[1]-A[1], dz = B[2]-A[2];
-      const l2 = dx*dx + dy*dy + dz*dz;
-      if (l2 < 4 || (r-A[0])**2+(g-A[1])**2+(b-A[2])**2 <= 3) { out[idx] = i1; continue; }
-      const t = ((r-A[0])*dx + (g-A[1])*dy + (b-A[2])*dz) / l2;
-      const ign = (52.982919 * ((0.06711056*x + 0.00583715*y) % 1)) % 1;
-      out[idx] = t > ign ? i2 : i1;
+      const p = y * w + x;
+      const i = p << 2;
+      const r = rgba[i], g = rgba[i + 1], b = rgba[i + 2];
+      if (Math.abs(r - 18) <= 2 && Math.abs(g - 19) <= 2 && Math.abs(b - 23) <= 2) { out[p] = 0; continue; }
+      if (r >= 253 && g >= 253 && b >= 253) { out[p] = 1; continue; }
+      const key = ((r >> 2) << 12) | ((g >> 2) << 6) | (b >> 2);
+      if (c1[key] === -1) {
+        let b1 = 0, b2 = 0, d1 = 1e12, d2 = 1e12;
+        for (let k = 0; k < pLen; k++) {
+          const dr = r - pal[k][0], dg = g - pal[k][1], db = b - pal[k][2];
+          const d = dr * dr + dg * dg + db * db;
+          if (d < d1) { d2 = d1; b2 = b1; d1 = d; b1 = k; }
+          else if (d < d2) { d2 = d; b2 = k; }
+        }
+        const vx = pal[b2][0] - pal[b1][0];
+        const vy = pal[b2][1] - pal[b1][1];
+        const vz = pal[b2][2] - pal[b1][2];
+        const l2 = vx * vx + vy * vy + vz * vz;
+        const dot = (r - pal[b1][0]) * vx + (g - pal[b1][1]) * vy + (b - pal[b1][2]) * vz;
+        const t = l2 > 0 && l2 < 2400 ? Math.max(0, Math.min(1, dot / l2)) : 0;
+        c1[key] = b1; c2[key] = b2; mix[key] = Math.round(t * 64);
+      }
+      out[p] = mix[key] > BAYER8[row | (x & 7)] ? c2[key] : c1[key];
     }
   }
   return out;
