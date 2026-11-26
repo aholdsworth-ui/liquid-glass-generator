@@ -1,3 +1,4 @@
+import { saveRecentUpload } from "./historyStore";
 import { PanelShape, BackgroundTheme, renderRefractedGlassPatch, generateStandaloneGlassSvg } from "./liquidGlassEngine";
 
 export interface GifFrameItem { canvas: HTMLCanvasElement; delay: number; }
@@ -36,7 +37,7 @@ export function getMediaFrameAt(media: LoadedMedia, timeMs: number): CanvasImage
   return media.canvas!;
 }
 
-export async function loadUniversalMediaFile(file: File): Promise<LoadedMedia> {
+async function _loadUniversalMediaCore(file: File): Promise<LoadedMedia> {
   const ext = (file.name.split(".").pop() || "").toLowerCase();
   const mime = (file.type || "").toLowerCase();
 
@@ -229,4 +230,24 @@ export async function renderExactCompositedFrame(
     ctx, outW, outH, src, mediaX * sx, mediaY * sy,
     scaledW * sx, scaledH * sy, sp, primaryOpacity
   );
+}
+
+export async function loadUniversalMediaFile(file: File): Promise<LoadedMedia> {
+  const res = await _loadUniversalMediaCore(file);
+  (res as any).__rawFile = file;
+  if (!(file as any).__skipUploadHistory) {
+    try {
+      const m: any = res;
+      const w = Number(m.width || m.naturalWidth || 1920), h = Number(m.height || m.naturalHeight || 1080);
+      const isMot = Boolean(m.isMotion || m.kind === "video" || m.kind === "gif" || /\.(mp4|mov|webm|gif)$/i.test(file.name));
+      const src = (getMediaFrameAt as any)(res, 0);
+      const tc = document.createElement("canvas");
+      const sc = Math.min(1, 320 / Math.max(w, h));
+      tc.width = Math.max(2, Math.round(w * sc)); tc.height = Math.max(2, Math.round(h * sc));
+      const tx = tc.getContext("2d");
+      if (tx && src) tx.drawImage(src, 0, 0, tc.width, tc.height);
+      saveRecentUpload(file, tc.toDataURL("image/jpeg", 0.82), `${w}x${h}`, isMot).catch(() => {});
+    } catch {}
+  }
+  return res;
 }

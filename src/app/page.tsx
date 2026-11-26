@@ -7,6 +7,9 @@ import { PanelShape, BackgroundTheme, STICKER_CATEGORIES, renderStandaloneGlassP
 import { LoadedMedia, PanelInstance, loadUniversalMediaFile, getMediaFrameAt, renderFrameWithPanels, exportMultiPanelSvg, exportCompositedMp4 } from "@/lib/mediaSupport";
 import { exportCompositedGif } from "@/lib/gifStudioEncoder";
 import { GFS_MOMENTUM_FOLDER_ID, DriveItem, getConfiguredGoogleClientId, getDriveAccessToken, listDriveFolderItems, downloadDriveFileDirect , MomentumDropzoneModal } from "@/lib/driveDirectPicker";
+import { RecentUploadItem, RecentCreationItem, getRecentUploads, getRecentCreations, loadBlobAsFile, deleteRecentUpload, saveRecentCreation, deleteRecentCreation, registerExportListener, notifyExportTriggered, onUploadsChanged } from "@/lib/historyStore";
+import { RecentUploadsModal, RecentCreationsModal, RecentCreationsNavButton } from "@/lib/HistoryModals";
+
 
 type ScreenId = "home" | "slides-pre" | "slides-create-cover" | "slides-fullbleed" | "slides-workspace" | "sticker-cover" | "sticker-sheet" | "bg-upload-cover" | "bg-workspace";
 type ResizePreset = "no-resize" | "1:1" | "4:5" | "9:16" | "16:9" | "custom";
@@ -337,7 +340,7 @@ export default function Page() {
 
   const downloadBlob = (blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob), a = document.createElement("a");
-    a.href = url; a.download = filename; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    a.href = url; a.download = filename; setTimeout(() => notifyExportTriggered(String(filename)), 25); document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(url); showToast(`Downloaded ${filename}`);
   };
 
@@ -392,13 +395,83 @@ export default function Page() {
   const filteredDriveItems = driveSearch.trim() ? driveItems.filter((i) => i.name.toLowerCase().includes(driveSearch.toLowerCase())) : driveItems;
   const activeClientId = (process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || clientIdInput).trim();
 
+  const [recentUploads, setRecentUploads] = useState<RecentUploadItem[]>([]);
+  const [recentCreations, setRecentCreations] = useState<RecentCreationItem[]>([]);
+  const [showRecentUploads, setShowRecentUploads] = useState(false);
+  const [showRecentCreations, setShowRecentCreations] = useState(false);
+  const hasRecentUploadsRef = useRef(false);
+  hasRecentUploadsRef.current = recentUploads.length > 0;
+
+  const isPlainVal = (v: any): boolean => {
+    if (v === null || v === undefined) return true;
+    const t = typeof v;
+    if (t === "string" || t === "number" || t === "boolean") return true;
+    if (typeof Element !== "undefined" && v instanceof Element) return false;
+    if (typeof Blob !== "undefined" && v instanceof Blob) return false;
+    if (Array.isArray(v)) return v.every(isPlainVal);
+    if (t === "object") {
+      const pr = Object.getPrototypeOf(v);
+      return (pr === null || pr === Object.prototype) && Object.values(v).every(isPlainVal);
+    }
+    return false;
+  };
+  const clonePlain = (v: any): any => JSON.parse(JSON.stringify(v));
+  const captureHistSnap = (): Record<string, any> => {
+    const raw: Record<string, any> = { screen: screen, theme: theme, imageryIdx: imageryIdx, slideFormat: slideFormat, slideShape: slideShape, slideW: slideW, slideH: slideH, slideOpacity: slideOpacity, slidePos: slidePos, resizeMode: resizeMode, customFrameW: customFrameW, customFrameH: customFrameH, bgOpacity: bgOpacity, panels: panels };
+    const out: Record<string, any> = {};
+    Object.keys(raw).forEach((k) => { if (isPlainVal(raw[k])) out[k] = clonePlain(raw[k]); });
+    return out;
+  };
+  const applyHistSnap = (sn: Record<string, any>) => { if ("screen" in sn) (setScreen as any)(clonePlain(sn["screen"])); if ("theme" in sn) (setTheme as any)(clonePlain(sn["theme"])); if ("imageryIdx" in sn) (setImageryIdx as any)(clonePlain(sn["imageryIdx"])); if ("slideFormat" in sn) (setSlideFormat as any)(clonePlain(sn["slideFormat"])); if ("slideShape" in sn) (setSlideShape as any)(clonePlain(sn["slideShape"])); if ("slideW" in sn) (setSlideW as any)(clonePlain(sn["slideW"])); if ("slideH" in sn) (setSlideH as any)(clonePlain(sn["slideH"])); if ("slideOpacity" in sn) (setSlideOpacity as any)(clonePlain(sn["slideOpacity"])); if ("slidePos" in sn) (setSlidePos as any)(clonePlain(sn["slidePos"])); if ("resizeMode" in sn) (setResizeMode as any)(clonePlain(sn["resizeMode"])); if ("customFrameW" in sn) (setCustomFrameW as any)(clonePlain(sn["customFrameW"])); if ("customFrameH" in sn) (setCustomFrameH as any)(clonePlain(sn["customFrameH"])); if ("bgOpacity" in sn) (setBgOpacity as any)(clonePlain(sn["bgOpacity"])); if ("panels" in sn) (setPanels as any)(clonePlain(sn["panels"])); };
+
+  useEffect(() => {
+    const refresh = () => {
+      getRecentUploads().then(setRecentUploads).catch(() => {});
+      getRecentCreations().then(setRecentCreations).catch(() => {});
+    };
+    refresh();
+    onUploadsChanged(refresh);
+    return () => onUploadsChanged(null);
+  }, []);
+  useEffect(() => {
+    registerExportListener((fname: string) => {
+      if (screen !== "bg-workspace" && screen !== "slides-workspace") return;
+      const cvs = (Array.from(document.querySelectorAll("canvas")) as HTMLCanvasElement[]).filter((c) => c.width > 40 && c.height > 40).sort((a, b) => b.width * b.height - a.width * a.height);
+      let thumb = "", lbl = "Panel export";
+      if (cvs[0]) {
+        lbl = `${cvs[0].width}x${cvs[0].height}`;
+        const tc = document.createElement("canvas");
+        const sc = Math.min(1, 380 / Math.max(cvs[0].width, cvs[0].height));
+        tc.width = Math.max(2, Math.round(cvs[0].width * sc)); tc.height = Math.max(2, Math.round(cvs[0].height * sc));
+        const tx = tc.getContext("2d");
+        if (tx) { tx.drawImage(cvs[0], 0, 0, tc.width, tc.height); thumb = tc.toDataURL("image/jpeg", 0.84); }
+      }
+      const m = fname.match(/\.([a-z0-9]+)$/i);
+      const raw: File | null = screen === "bg-workspace" ? ((media as any)?.__rawFile || null) : null;
+      const pc = screen === "bg-workspace" && Array.isArray(panels) ? panels.length : 1;
+      saveRecentCreation({ file: raw, label: lbl, exportExt: m ? `.${m[1].toUpperCase()}` : ".PNG", panelCount: pc, thumbUrl: thumb, snapshot: captureHistSnap() }).then(() => getRecentCreations().then(setRecentCreations)).catch(() => {});
+    });
+    return () => registerExportListener(null);
+  });
+
+  const handleRestoreCreation = async (item: RecentCreationItem) => {
+    setShowRecentCreations(false);
+    if (item.blobKey) {
+      const f = await loadBlobAsFile(item.blobKey, item.fileName, item.fileType);
+      if (f) applyLoadedMedia(await loadUniversalMediaFile(f));
+    }
+    applyHistSnap(item.snapshot);
+    await new Promise<void>((r) => setTimeout(() => r(), 80));
+    applyHistSnap(item.snapshot);
+  };
+
   return (
     <div
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => { e.preventDefault(); if (screen === "bg-upload-cover" || screen === "bg-workspace" || showMomentumModal) handleIngestFile(e.dataTransfer.files?.[0]); }}
       className="min-h-screen w-full bg-[#F1F3F4] flex flex-col items-center py-4 md:py-6 px-3 md:px-6 font-sans text-[#121317]"
     >
-      <input ref={fileInputRef} type="file" accept="image/*,video/*,.psd,.tif,.tiff,.gif,.mp4,.mov,.webm,.m4v,.png,.jpg,.jpeg,.webp,.svg,.avif,.bmp" className="hidden" onChange={(e) => handleIngestFile(e.target.files?.[0])} />
+      <input ref={fileInputRef} type="file" onClick={(e) => { if (hasRecentUploadsRef.current) { e.preventDefault(); setShowRecentUploads(true); } }} accept="image/*,video/*,.psd,.tif,.tiff,.gif,.mp4,.mov,.webm,.m4v,.png,.jpg,.jpeg,.webp,.svg,.avif,.bmp" className="hidden" onChange={(e) => handleIngestFile(e.target.files?.[0])} />
 
       <div className="w-full max-w-[1180px] flex items-center justify-between mb-2.5 h-8 px-1 sticky top-2 z-30">
         {screen !== "home" ? (
@@ -415,9 +488,12 @@ export default function Page() {
         <div className="flex items-center gap-3">
           {(toastMsg || isLoadingFile) && <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full shadow-sm"><Check className="w-3.5 h-3.5" /> {isLoadingFile ? "Loading asset..." : toastMsg}</span>}
           {screen !== "home" && <button onClick={() => setScreen("home")} className="inline-flex items-center gap-1.5 text-xs font-medium text-neutral-600 hover:text-black bg-white/95 px-3 py-1.5 rounded-full border border-neutral-200 shadow-sm cursor-pointer"><RotateCcw className="w-3.5 h-3.5" /> Home</button>}
-        </div>
+        <RecentCreationsNavButton count={recentCreations.length} onClick={() => setShowRecentCreations(true)} />
+          </div>
       </div>
 
+      <RecentUploadsModal open={showRecentUploads} items={recentUploads} onClose={() => setShowRecentUploads(false)} onPickUpload={async (u) => { setShowRecentUploads(false); const f = await loadBlobAsFile(u.blobKey, u.name, u.type); if (f) applyLoadedMedia(await loadUniversalMediaFile(f)); }} onPickNewFile={async (f) => { setShowRecentUploads(false); applyLoadedMedia(await loadUniversalMediaFile(f)); }} onDeleteUpload={async (id) => { await deleteRecentUpload(id); setRecentUploads(await getRecentUploads()); }} />
+      <RecentCreationsModal open={showRecentCreations} items={recentCreations} onClose={() => setShowRecentCreations(false)} onRestore={handleRestoreCreation} onDelete={async (id) => { await deleteRecentCreation(id); setRecentCreations(await getRecentCreations()); }} />
       {showMomentumModal && <MomentumDropzoneModal onClose={() => setShowMomentumModal(false)} onSelectFile={async (f: File) => { setShowMomentumModal(false); applyLoadedMedia(await loadUniversalMediaFile(f)); }} />}
 
       {screen !== "sticker-sheet" ? (
