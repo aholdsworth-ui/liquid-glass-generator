@@ -74,7 +74,7 @@ export function renderStandaloneGlassPanel(opts: {
   const sRaw = Math.max(0, Math.min(1, opts.frostOpacity));
   const s = opts.theme === "grey1200" ? sRaw * 0.5 : sRaw;
   const sh = getShadowMetrics(w, h, opts.theme);
-  const pad = opts.includeShadow === false ? 2 : sh.pad;
+  const pad = opts.includeShadow === false ? 0 : sh.pad;
 
   const canvas = document.createElement("canvas");
   canvas.width = w + pad * 2;
@@ -193,11 +193,11 @@ export function drawCompositedStageFrame(
   ctx.restore();
 }
 
-export function generateStandaloneGlassSvg(opts: { width: number; height: number; shape: PanelShape; theme: BackgroundTheme; frostOpacity: number }): string {
+export function generateStandaloneGlassSvg(opts: { width: number; height: number; shape: PanelShape; theme: BackgroundTheme; frostOpacity: number; includeShadow?: boolean }): string {
   const w = Math.max(16, Math.round(opts.width)), h = Math.max(16, Math.round(opts.height));
   const r = getCornerRadius(w, h, opts.shape, 20);
   const s = opts.theme === "grey1200" ? Math.max(0, Math.min(1, opts.frostOpacity)) * 0.5 : Math.max(0, Math.min(1, opts.frostOpacity));
-  const sh = getShadowMetrics(w, h, opts.theme), pad = sh.pad;
+  const sh = getShadowMetrics(w, h, opts.theme), pad = opts.includeShadow === false ? 0 : sh.pad;
   const baseA = opts.theme === "grey1200" ? 0.05 + s * 0.34 : opts.theme === "white" ? Math.min(0.85, 0.07 + s * 0.50) : 0.05 + s * 0.34;
   const fc = opts.theme === "white" ? "#F4F4F3" : opts.theme === "grey1200" ? "#F6F6F7" : "#FCFCFA";
   const gs = Math.max(10, Math.min(32, Math.min(w, h) * 0.34));
@@ -205,7 +205,7 @@ export function generateStandaloneGlassSvg(opts: { width: number; height: number
   const gp = opts.theme === "grey1200" ? "0.28" : opts.theme === "white" ? "0.52" : "0.35";
   const rc = opts.theme === "white" ? "#FFFFFF" : "#F8F9FA";
   const ro = opts.theme === "white" ? "0.92" : opts.theme === "grey1200" ? "0.74" : "0.54";
-  return `<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" width="${w+pad*2}" height="${h+pad*2}" viewBox="${-pad} ${-pad} ${w+pad*2} ${h+pad*2}" fill="none"><defs><clipPath id="pc"><rect x="0" y="0" width="${w}" height="${h}" rx="${r}" ry="${r}"/></clipPath><mask id="sm" maskUnits="userSpaceOnUse" x="${-pad}" y="${-pad}" width="${w+pad*2}" height="${h+pad*2}"><rect x="${-pad}" y="${-pad}" width="${w+pad*2}" height="${h+pad*2}" fill="#FFF"/><rect x="0" y="0" width="${w}" height="${h}" rx="${r}" ry="${r}" fill="#000"/></mask><filter id="sb" x="-35%" y="-35%" width="170%" height="170%"><feGaussianBlur stdDeviation="${sh.sigma.toFixed(2)}"/></filter><filter id="gb" x="-25%" y="-25%" width="150%" height="150%"><feGaussianBlur stdDeviation="${(gs*0.42).toFixed(1)}"/></filter><linearGradient id="ff" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="${fc}" stop-opacity="${Math.min(0.86,baseA*0.96).toFixed(3)}"/><stop offset="100%" stop-color="${fc}" stop-opacity="${Math.min(0.86,baseA*1.03).toFixed(3)}"/></linearGradient><linearGradient id="bg" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#FFF" stop-opacity="0.03"/><stop offset="45%" stop-color="#FFF" stop-opacity="${gm}"/><stop offset="100%" stop-color="#FFF" stop-opacity="${gp}"/></linearGradient></defs><g mask="url(#sm)"><rect x="0" y="${sh.offsetY.toFixed(2)}" width="${w}" height="${h}" rx="${r}" ry="${r}" fill="#000" fill-opacity="${sh.alpha.toFixed(3)}" filter="url(#sb)"/></g>${opts.theme==="white"?`<rect x="0" y="0" width="${w}" height="${h}" rx="${r}" ry="${r}" stroke="#B6B9BE" stroke-opacity="0.26" stroke-width="0.8"/>`:""}<g clip-path="url(#pc)"><rect x="0" y="0" width="${w}" height="${h}" rx="${r}" ry="${r}" fill="url(#ff)"/><rect x="0" y="0" width="${w}" height="${h}" rx="${r}" ry="${r}" stroke="url(#bg)" stroke-width="${gs.toFixed(1)}" filter="url(#gb)"/><rect x="0.55" y="0.55" width="${w-1.1}" height="${h-1.1}" rx="${Math.max(0,r-0.55)}" ry="${Math.max(0,r-0.55)}" stroke="${rc}" stroke-opacity="${ro}" stroke-width="1.15"/></g></svg>`;
+  return `<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" width="${w+pad*2}" height="${h+pad*2}" viewBox="${-pad} ${-pad} ${w+pad*2} ${h+pad*2}" fill="none"><defs><clipPath id="pc"><rect x="0" y="0" width="${w}" height="${h}" rx="${r}" ry="${r}"/></clipPath><mask id="sm" maskUnits="userSpaceOnUse" x="${-pad}" y="${-pad}" width="${w+pad*2}" height="${h+pad*2}"><rect x="${-pad}" y="${-pad}" width="${w+pad*2}" height="${h+pad*2}" fill="#FFF"/><rect x="0" y="0" width="${w}" height="${h}" rx="${r}" ry="${r}" fill="#000"/></mask><filter id="sb" x="-35%" y="-35%" width="170%" height="170%"><feGaussianBlur stdDeviation="${sh.sigma.toFixed(2)}"/></filter><filter id="gb" x="-25%" y="-25%" width="150%" height="150%"><feGaussianBlur stdDeviation="${(gs*0.42).toFixed(1)}"/></filter><linearGradient id="ff" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="${fc}" stop-opacity="${Math.min(0.86,baseA*0.96).toFixed(3)}"/><stop offset="100%" stop-color="${fc}" stop-opacity="${Math.min(0.86,baseA*1.03).toFixed(3)}"/></linearGradient><linearGradient id="bg" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#FFF" stop-opacity="0.03"/><stop offset="45%" stop-color="#FFF" stop-opacity="${gm}"/><stop offset="100%" stop-color="#FFF" stop-opacity="${gp}"/></linearGradient></defs>${opts.includeShadow === false ? "" : `<g mask="url(#sm)"><rect x="0" y="${sh.offsetY.toFixed(2)}" width="${w}" height="${h}" rx="${r}" ry="${r}" fill="#000" fill-opacity="${sh.alpha.toFixed(3)}" filter="url(#sb)"/></g>`}${opts.theme==="white"?`<rect x="0" y="0" width="${w}" height="${h}" rx="${r}" ry="${r}" stroke="#B6B9BE" stroke-opacity="0.26" stroke-width="0.8"/>`:""}<g clip-path="url(#pc)"><rect x="0" y="0" width="${w}" height="${h}" rx="${r}" ry="${r}" fill="url(#ff)"/><rect x="0" y="0" width="${w}" height="${h}" rx="${r}" ry="${r}" stroke="url(#bg)" stroke-width="${gs.toFixed(1)}" filter="url(#gb)"/><rect x="0.55" y="0.55" width="${w-1.1}" height="${h-1.1}" rx="${Math.max(0,r-0.55)}" ry="${Math.max(0,r-0.55)}" stroke="${rc}" stroke-opacity="${ro}" stroke-width="1.15"/></g></svg>`;
 }
 
 export function generateCompositedMultiGlassSvg(
