@@ -1,48 +1,74 @@
-import { LoadedMedia, PanelInstance, getMediaFrameAt, renderFrameWithPanels } from "./mediaSupport";
-import { StudioGifBuilder } from "./gifQuantizer24";
+import * as GifEncMod from "gifenc";
+import {
+  LoadedMedia,
+  PanelInstance,
+  renderExactCompositedFrame,
+} from "./mediaSupport";
+import { buildStudioPalette256, ditherFrameIgn } from "./gifStudioPalette";
 
 export async function exportCompositedGif(
-  media: any, frameW: number, frameH: number, mediaX: number, mediaY: number,
-  scaledW: number, scaledH: number, panels: PanelInstance[], primaryOpacity: number, onProgress: (pct: number) => void
+  media: LoadedMedia, frameW: number, frameH: number,
+  mediaX: number, mediaY: number, scaledW: number, scaledH: number,
+  panels: PanelInstance[], primaryOpacity: number,
+  onProgress?: (pct: number) => void
 ): Promise<Blob> {
-  const w = Math.max(16, Math.round(frameW));
-  const h = Math.max(16, Math.round(frameH));
-  const canvas = document.createElement("canvas");
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
-
-  const dur = Math.max(0.5, Math.min(10, (media.durationSec || media.duration || (media.gifTotalMs ? media.gifTotalMs / 1000 : 0) || media.video?.duration || 4) || 4));
-  const fps = 15;
-  const totalFrames = Math.max(8, Math.round(dur * fps));
-  const delayMs = Math.round(1000 / fps);
-
-  const rects = (panels as any[]).map((p: any) => ({ x: p.x, y: p.y, width: p.width, height: p.height }));
-  const builder = new StudioGifBuilder(w, h, rects);
-
-  const sampleCount = Math.min(10, totalFrames);
-  for (let s = 0; s < sampleCount; s++) {
-    const t = (s / Math.max(1, sampleCount - 1)) * Math.max(0, dur - 0.04);
-    const frameSrc = await getMediaFrameAt(media, t);
-    (renderFrameWithPanels as any)(ctx, frameSrc, frameW, frameH, mediaX, mediaY, scaledW, scaledH, panels, primaryOpacity);
-    builder.addKeySample(ctx.getImageData(0, 0, w, h).data);
-    onProgress?.(Math.round(((s + 1) / sampleCount) * 20));
-    await new Promise((r) => setTimeout(r, 0));
+  const m: any = media;
+  const makeGif: any =
+    (GifEncMod as any).GIFEncoder ||
+    (GifEncMod as any).default?.GIFEncoder ||
+    (GifEncMod as any).default;
+  const full = document.createElement("canvas");
+  full.width = Math.max(2, Math.round(frameW));
+  full.height = Math.max(2, Math.round(frameH));
+  const fCtx = full.getContext("2d", { willReadFrequently: true })!;
+  const sc = Math.min(1, 1080 / Math.max(full.width, full.height));
+  const gw = Math.max(2, Math.round(full.width * sc) & ~1);
+  const gh = Math.max(2, Math.round(full.height * sc) & ~1);
+  const gCan = sc < 0.999 ? document.createElement("canvas") : full;
+  if (gCan !== full) { gCan.width = gw; gCan.height = gh; }
+  const gCtx = gCan.getContext("2d", { willReadFrequently: true })!;
+  gCtx.imageSmoothingEnabled = true;
+  const vid: any = m?.video || m?.videoEl || null;
+  const dur = Math.max(0.6, Math.min(8, Number(m?.durationSec || m?.duration || vid?.duration || 4)));
+  const total = Math.max(10, Math.round(dur * 20));
+  const rects = panels.map((p: any) => { const pw = Number(p.width ?? p.w ?? p.widthInput ?? 400), ph = Number(p.height ?? p.h ?? p.heightInput ?? 200); return { x0: (p.x - 20) * sc, y0: (p.y - 20) * sc, x1: (p.x + pw + 20) * sc, y1: (p.y + ph + 20) * sc }; });
+  const grab = async (t: number) => {
+    await (renderExactCompositedFrame as any)(
+      fCtx, t, media, frameW, frameH, mediaX, mediaY, scaledW, scaledH, panels, primaryOpacity
+    );
+    if (gCan !== full) { gCtx.clearRect(0, 0, gw, gh); gCtx.drawImage(full, 0, 0, gw, gh); }
+    return gCtx.getImageData(0, 0, gw, gh).data;
+  };
+  try {
+    const samples: number[][] = [];
+    const sCount = Math.min(8, total);
+    const st = Math.max(3, Math.round(Math.sqrt((gw * gh) / 3000)));
+    for (let s = 0; s < sCount; s++) {
+      const rgba = await grab((s / sCount) * dur);
+      for (let y = 0; y < gh; y += st) {
+        for (let x = 0; x < gw; x += st) {
+          const i = (y * gw + x) * 4;
+          const inP = rects.some((rc) => x >= rc.x0 && x <= rc.x1 && y >= rc.y0 && y <= rc.y1);
+          for (let k = 0; k < (inP ? 5 : 1); k++) samples.push([rgba[i], rgba[i+1], rgba[i+2]]);
+        }
+      }
+      onProgress?.(Math.round(((s + 1) / sCount) * 20));
+    }
+    const pal = buildStudioPalette256(samples);
+    const lut = new Int32Array(32768).fill(-1);
+    const gif = makeGif();
+    for (let f = 0; f < total; f++) {
+      const idx = ditherFrameIgn(await grab((f / total) * dur), gw, gh, pal, lut);
+      gif.writeFrame(idx, gw, gh, { palette: pal, delay: 50, repeat: 0 });
+      if (f % 2 === 0) {
+        onProgress?.(20 + Math.round(((f + 1) / total) * 79));
+        await new Promise((r) => setTimeout(r, 0));
+      }
+    }
+    gif.finish();
+    onProgress?.(100);
+    return new Blob([gif.bytes() as any], { type: "image/gif" });
+  } finally {
+    if (vid) vid.play?.().catch(() => {});
   }
-
-  builder.finalizePalette();
-
-  for (let f = 0; f < totalFrames; f++) {
-    const t = (f / totalFrames) * dur;
-    const frameSrc = await getMediaFrameAt(media, t);
-    (renderFrameWithPanels as any)(ctx, frameSrc, frameW, frameH, mediaX, mediaY, scaledW, scaledH, panels, primaryOpacity);
-    builder.writeRgbaFrame(ctx.getImageData(0, 0, w, h).data, delayMs, f === 0);
-    onProgress?.(20 + Math.round(((f + 1) / totalFrames) * 80));
-    if (f % 2 === 0) await new Promise((r) => setTimeout(r, 0));
-  }
-
-  const bytes = builder.finish();
-  const blob = new Blob([bytes.buffer as ArrayBuffer as any], { type: "image/gif" });
-  
-  return blob;
 }

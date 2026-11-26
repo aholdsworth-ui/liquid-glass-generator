@@ -7,9 +7,9 @@ export const PAGE_ASSETS = {
   "slidesFullBleedCover": "/assets/glass-panel-app_16_9-full-bleed-image-cover.png?v=1795645950",
   "slidesInternal": "/assets/glass-panel-app_16_9-export-just-a-panel-internal-page.png?v=1795645950",
   "stickerCover": "/assets/glass-panel-app_16_9-sticker-sheet-cover.png?v=1795645950",
-  "stickerImagery": "/assets/sticker-header-imagery-v4.png",
-  "stickerGrey1200": "/assets/sticker-header-grey1200-v4.png",
-  "stickerWhite": "/assets/sticker-header-white-v4.png",
+  "stickerImagery": "/assets/sticker-sheet-imagery-v6.png",
+  "stickerGrey1200": "/assets/sticker-sheet-grey1200-v6.png",
+  "stickerWhite": "/assets/sticker-sheet-white-v6.png",
   "bgUploadCover": "/assets/bg-upload-cover-v5.png",
   "bgInternal": "/assets/bg-internal-page-v5.png"
 } as const;
