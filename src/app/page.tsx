@@ -175,7 +175,7 @@ export default function Page() {
         if (pw >= 24 && ph >= 24) {
           const patch = renderRefractedGlassPatch(bg, width, height, slidePos.x, slidePos.y, { width: pw, height: ph, shape: slideShape, theme, frostOpacity: slideOpacity / 100 });
           ctx.drawImage(patch, Math.round(slidePos.x - (patch.width - pw) / 2), Math.round(slidePos.y - (patch.height - ph) / 2));
-    if (Number(visualGuide) > 0) { const __cw = c.clientWidth || 460, __ch = c.clientHeight || Math.round(__cw * height / width); ctx.save(); ctx.scale(width / __cw, height / __ch); drawVisualGuideGrid(ctx, 0, 0, 0, __cw, __ch, visualGuide); ctx.restore(); }
+    if (Number(visualGuide) > 0) { const __cw = c.clientWidth || 460, __ch = c.clientHeight || Math.round(__cw * height / width); ctx.save(); ctx.scale(width / __cw, height / __ch); drawVisualGuideGrid(ctx, 0, 0, 1, __cw, __ch, visualGuide); ctx.restore(); }
               drawPanelHandlesOnCtx(ctx, slidePos.x, slidePos.y, pw, ph, Math.max(width, height) / 430, dragRef.current.kind === "slide-resize", slideShape === "circle" ? `${pw} px \u2300` : `${pw} \u00D7 ${ph} px`);
         }
       }
