@@ -124,6 +124,24 @@ async function _loadUniversalMediaCore(file: File): Promise<LoadedMedia> {
   return { kind: "static", isMotion: false, width: c.width, height: c.height, name: file.name, canvas: c };
 }
 
+let __gfsMediaRotDeg = 0;
+export function setActiveMediaRotation(deg: number) {
+  __gfsMediaRotDeg = Number.isFinite(deg) ? deg : 0;
+}
+export function drawMediaWithRotation(
+  ctx: CanvasRenderingContext2D, drawable: CanvasImageSource,
+  mx: number, my: number, sw: number, sh: number
+) {
+  const deg = __gfsMediaRotDeg;
+  if (!deg || Math.abs(deg % 360) < 0.01) {
+    ctx.drawImage(drawable, mx, my, sw, sh); return;
+  }
+  const cx = mx + sw / 2, cy = my + sh / 2;
+  ctx.save(); ctx.translate(cx, cy);
+  ctx.rotate((deg * Math.PI) / 180);
+  ctx.drawImage(drawable, -sw / 2, -sh / 2, sw, sh);
+  ctx.restore();
+}
 export function renderFrameWithPanels(
   outCtx: CanvasRenderingContext2D, frameW: number, frameH: number, drawable: CanvasImageSource,
   mediaX: number, mediaY: number, scaledW: number, scaledH: number, panels: PanelInstance[], primaryOpacity: number
@@ -133,7 +151,7 @@ export function renderFrameWithPanels(
   const bCtx = bgBuf.getContext("2d")!;
   bCtx.imageSmoothingEnabled = true; bCtx.imageSmoothingQuality = "high";
   bCtx.fillStyle = "#FFFFFF"; bCtx.fillRect(0, 0, frameW, frameH);
-  bCtx.drawImage(drawable, mediaX, mediaY, scaledW, scaledH);
+  drawMediaWithRotation(bCtx, drawable, mediaX, mediaY, scaledW, scaledH);
 
   outCtx.clearRect(0, 0, frameW, frameH);
   outCtx.drawImage(bgBuf, 0, 0);
@@ -157,7 +175,7 @@ export function exportMultiPanelSvg(
   bgBuf.width = frameW; bgBuf.height = frameH;
   const bCtx = bgBuf.getContext("2d")!;
   bCtx.fillStyle = "#FFFFFF"; bCtx.fillRect(0, 0, frameW, frameH);
-  bCtx.drawImage(drawable, mediaX, mediaY, scaledW, scaledH);
+  drawMediaWithRotation(bCtx, drawable, mediaX, mediaY, scaledW, scaledH);
   const bgUrl = bgBuf.toDataURL("image/png");
   const blurPx = (8 + primaryOpacity * 10).toFixed(1);
   let clips = "", blurs = "", overlays = "";
@@ -245,7 +263,7 @@ export async function loadUniversalMediaFile(file: File): Promise<LoadedMedia> {
       const sc = Math.min(1, 320 / Math.max(w, h));
       tc.width = Math.max(2, Math.round(w * sc)); tc.height = Math.max(2, Math.round(h * sc));
       const tx = tc.getContext("2d");
-      if (tx && src) tx.drawImage(src, 0, 0, tc.width, tc.height);
+      if (tx && src) drawMediaWithRotation(tx, src,  0, 0, tc.width, tc.height);
       saveRecentUpload(file, tc.toDataURL("image/jpeg", 0.82), `${w}x${h}`, isMot).catch(() => {});
     } catch {}
   }

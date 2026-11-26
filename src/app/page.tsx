@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { ArrowLeft, RotateCcw, Download, Check, Upload, ExternalLink, X, Folder, Search, ChevronRight } from "lucide-react";
 import { PAGE_ASSETS, BG_ASSETS, BUTTON_ZONES, GFS_MOMENTUM_DRIVE_URL, ZoneRect } from "@/lib/assetPaths";
 import { PanelShape, BackgroundTheme, STICKER_CATEGORIES, renderStandaloneGlassPanel, generateStandaloneGlassSvg, renderRefractedGlassPatch } from "@/lib/liquidGlassEngine";
-import { LoadedMedia, PanelInstance, loadUniversalMediaFile, getMediaFrameAt, renderFrameWithPanels, exportMultiPanelSvg, exportCompositedMp4 } from "@/lib/mediaSupport";
+import { LoadedMedia, PanelInstance, loadUniversalMediaFile, getMediaFrameAt, renderFrameWithPanels, setActiveMediaRotation, exportMultiPanelSvg, exportCompositedMp4 } from "@/lib/mediaSupport";
 import { exportCompositedGif } from "@/lib/gifStudioEncoder";
 import { GFS_MOMENTUM_FOLDER_ID, DriveItem, getConfiguredGoogleClientId, getDriveAccessToken, listDriveFolderItems, downloadDriveFileDirect , MomentumDropzoneModal } from "@/lib/driveDirectPicker";
 import { RecentUploadItem, RecentCreationItem, getRecentUploads, getRecentCreations, loadBlobAsFile, deleteRecentUpload, saveRecentCreation, deleteRecentCreation, registerExportListener, notifyExportTriggered, onUploadsChanged } from "@/lib/historyStore";
@@ -59,6 +59,16 @@ export default function Page() {
   const [customFrameW, setCustomFrameW] = useState("1920");
   const [customFrameH, setCustomFrameH] = useState("1080");
   const [mediaScale, setMediaScale] = useState(1);
+  const [mediaRot, setMediaRot] = useState(0);
+  const rotHandleRef = useRef<{ rhx: number; rhy: number; bcx: number; bcy: number; cw: number; ch: number; canvas: HTMLCanvasElement } | null>(null);
+  const rotCorner = (c: any, cx: number, cy: number, deg: number) => {
+    if (!deg) return c;
+    const r = (deg * Math.PI) / 180, co = Math.cos(r), si = Math.sin(r);
+    const kx = "hx" in c ? "hx" : "x", ky = "hy" in c ? "hy" : "y";
+    const dx = c[kx] - cx, dy = c[ky] - cy, ax0 = c.ax - cx, ay0 = c.ay - cy;
+    return { ...c, [kx]: cx + dx * co - dy * si, [ky]: cy + dx * si + dy * co, ax: cx + ax0 * co - ay0 * si, ay: cy + ax0 * si + ay0 * co };
+  };
+  setActiveMediaRotation(screen === "bg-workspace" ? mediaRot : 0);
   const [mediaPan, setMediaPan] = useState({ x: 0, y: 0 });
   const [bgOpacity, setBgOpacity] = useState(50);
   const [panels, setPanels] = useState<PanelInstance[]>([
@@ -85,10 +95,10 @@ export default function Page() {
   const bgStageCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const viewTransformRef = useRef({ scale: 1, ox: 0, oy: 0 });
   const dragRef = useRef<{
-    kind: "none" | "slide-panel" | "bg-panel" | "bg-pan" | "bg-corner";
+    kind: "none" | "slide-panel" | "bg-panel" | "bg-pan" | "bg-corner" | "bg-rotate";
     panelIdx?: number; corner?: "tl" | "tr" | "bl" | "br";
     dx?: number; dy?: number; anchorX?: number; anchorY?: number;
-    startScale?: number; startDist?: number;
+    startScale?: number; startRot?: number; startAngle?: number; centerX?: number; centerY?: number; startDist?: number;
     startPanX?: number; startPanY?: number; startClickX?: number; startClickY?: number;
   }>({ kind: "none" });
 
@@ -167,7 +177,7 @@ export default function Page() {
         const ox = (STAGE_W - fw * vs) / 2, oy = (STAGE_H - fh * vs) / 2;
         viewTransformRef.current = { scale: vs, ox, oy };
 
-        const scaledW = media.width * mediaScale, scaledH = media.height * mediaScale;
+        const scaledW = media.width * mediaScale, scaledH = media.height * mediaScale; const __hc: [number, number][] = []; setActiveMediaRotation(mediaRot);
         const mx = fw / 2 + mediaPan.x - scaledW / 2, my = fh / 2 + mediaPan.y - scaledH / 2;
 
         ctx.clearRect(0, 0, STAGE_W, STAGE_H);
@@ -190,21 +200,67 @@ export default function Page() {
 
         ctx.strokeStyle = "#121317"; ctx.lineWidth = 1.75; ctx.strokeRect(ox, oy, fw * vs, fh * vs);
         const rx = ox + mx * vs, ry = oy + my * vs, rw = scaledW * vs, rh = scaledH * vs;
-        ctx.save(); ctx.setLineDash([4, 4]); ctx.strokeStyle = "rgba(18,19,23,0.45)"; ctx.lineWidth = 1; ctx.strokeRect(rx, ry, rw, rh); ctx.restore();
+        ctx.save(); ctx.setLineDash([4, 4]); ctx.strokeStyle = "rgba(18,19,23,0.45)"; ctx.lineWidth = 1; if (!mediaRot) ctx.strokeRect(rx, ry, rw, rh); ctx.restore();
         for (const [cx, cy] of [[rx, ry], [rx + rw, ry], [rx, ry + rh], [rx + rw, ry + rh]]) {
           const hcx = Math.max(9, Math.min(STAGE_W - 9, cx)), hcy = Math.max(9, Math.min(STAGE_H - 9, cy));
-          ctx.beginPath(); ctx.arc(hcx, hcy, 6.5, 0, Math.PI * 2); ctx.fillStyle = "#FFF"; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#121317"; ctx.stroke();
+          __hc.push([hcx, hcy]); if (!mediaRot) { ctx.beginPath(); ctx.arc(hcx, hcy, 6.5, 0, Math.PI * 2); ctx.fillStyle = "#FFF"; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#121317"; ctx.stroke(); } if (__hc.length === 4) {
+  const xs = __hc.map((q) => q[0]), ys = __hc.map((q) => q[1]);
+  const bx0 = Math.min(...xs), bx1 = Math.max(...xs), by0 = Math.min(...ys), by1 = Math.max(...ys);
+  const bcx = (bx0 + bx1) / 2, bcy = (by0 + by1) / 2, bw = bx1 - bx0, bh = by1 - by0;
+  const rad = (mediaRot * Math.PI) / 180;
+  if (mediaRot) {
+    ctx.save(); ctx.translate(bcx, bcy); ctx.rotate(rad);
+    ctx.strokeStyle = "rgba(18,19,23,0.65)"; ctx.lineWidth = 1.5;
+    ctx.strokeRect(-bw / 2, -bh / 2, bw, bh);
+    for (const [lx, ly] of [[-bw/2,-bh/2],[bw/2,-bh/2],[-bw/2,bh/2],[bw/2,bh/2]]) {
+      ctx.beginPath(); ctx.arc(lx, ly, 6.5, 0, Math.PI * 2);
+      ctx.fillStyle = "#FFF"; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#121317"; ctx.stroke();
+    }
+    ctx.restore();
+  }
+  const cw = ctx.canvas.width, ch = ctx.canvas.height;
+  const tx = bcx + Math.sin(rad) * (bh / 2), ty = bcy - Math.cos(rad) * (bh / 2);
+  const rhx = Math.max(18, Math.min(cw - 18, bcx + Math.sin(rad) * (bh / 2 + 26)));
+  const rhy = Math.max(18, Math.min(ch - 18, bcy - Math.cos(rad) * (bh / 2 + 26)));
+  rotHandleRef.current = { rhx, rhy, bcx, bcy, cw, ch, canvas: ctx.canvas };
+  const act = dragRef.current?.kind === "bg-rotate";
+  ctx.save();
+  ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(rhx, rhy);
+  ctx.strokeStyle = "#121317"; ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.shadowColor = "rgba(0,0,0,0.18)"; ctx.shadowBlur = 6; ctx.shadowOffsetY = 2;
+  ctx.beginPath(); ctx.arc(rhx, rhy, 11, 0, Math.PI * 2);
+  ctx.fillStyle = act ? "#121317" : "#FFF"; ctx.fill();
+  ctx.shadowColor = "transparent"; ctx.lineWidth = 1.75; ctx.strokeStyle = "#121317"; ctx.stroke();
+  const ic = act ? "#FFF" : "#121317";
+  ctx.strokeStyle = ic; ctx.fillStyle = ic; ctx.lineWidth = 1.6; ctx.lineCap = "round";
+  ctx.beginPath(); ctx.arc(rhx, rhy, 5.2, -Math.PI * 0.8, Math.PI * 0.55); ctx.stroke();
+  const ax = rhx + 5.2 * Math.cos(Math.PI * 0.55), ay = rhy + 5.2 * Math.sin(Math.PI * 0.55);
+  ctx.beginPath(); ctx.moveTo(ax + 2.8, ay - 1.2); ctx.lineTo(ax - 0.8, ay + 2.5); ctx.lineTo(ax - 2.4, ay - 2.0); ctx.closePath(); ctx.fill();
+  if (act) {
+    const lbl = `${Math.round(mediaRot * 10) / 10}°`;
+    ctx.font = "600 11px sans-serif";
+    const tw = Math.max(36, ctx.measureText(lbl).width + 16);
+    const px = Math.min(cw - tw - 6, rhx + 16), py = Math.max(20, rhy);
+    ctx.fillStyle = "#121317"; ctx.beginPath();
+    ctx.arc(px + 10, py, 10, Math.PI / 2, -Math.PI / 2);
+    ctx.arc(px + tw - 10, py, 10, -Math.PI / 2, Math.PI / 2);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "#FFF"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(lbl, px + tw / 2, py);
+  }
+  ctx.restore(); __hc.length = 0;
+}
         }
       }
       raf = requestAnimationFrame(renderLoop);
     };
     raf = requestAnimationFrame(renderLoop);
     return () => cancelAnimationFrame(raf);
-  }, [screen, media, frameDims.width, frameDims.height, mediaScale, mediaPan, panels, bgOpacity, exportingMotion?.fmt]);
+  }, [screen, media, frameDims.width, frameDims.height, mediaScale, mediaPan, mediaRot, panels, bgOpacity, exportingMotion?.fmt]);
 
   const applyLoadedMedia = (loaded: LoadedMedia) => {
     setMedia(loaded); setResizeMode("no-resize"); setCustomFrameW(String(loaded.width)); setCustomFrameH(String(loaded.height));
-    setMediaScale(1); setMediaPan({ x: 0, y: 0 }); setBgOpacity(50);
+    setMediaScale(1); setMediaPan({ x: 0, y: 0 }); setMediaRot(0); setBgOpacity(50);
     const iw = Math.min(560, Math.max(120, Math.round(loaded.width * 0.36))), ih = Math.min(220, Math.max(80, Math.round(loaded.height * 0.22)));
     setPanels([{ id: "p1", shape: "text-panel", theme: "imagery", widthInput: String(iw), heightInput: String(ih), x: Math.round((loaded.width - iw) / 2), y: Math.round((loaded.height - ih) / 2) }]);
     setShowMomentumModal(false); setDriveDownloadStatus(""); setScreen("bg-workspace");
@@ -280,7 +336,16 @@ export default function Page() {
     const cEl = bgStageCanvasRef.current, rect = cEl.getBoundingClientRect();
     const sx = (e.clientX - rect.left) * (cEl.width / rect.width), sy = (e.clientY - rect.top) * (cEl.height / rect.height);
     const { scale: vs, ox, oy } = viewTransformRef.current;
-    const fw = frameDims.width, fh = frameDims.height, sw = media.width * mediaScale, sh = media.height * mediaScale;
+    if (rotHandleRef.current && media) {
+  const __r = rotHandleRef.current.canvas.getBoundingClientRect();
+  const __cx = ((e.clientX - __r.left) / Math.max(1, __r.width)) * rotHandleRef.current.cw;
+  const __cy = ((e.clientY - __r.top) / Math.max(1, __r.height)) * rotHandleRef.current.ch;
+  if (Math.hypot(__cx - rotHandleRef.current.rhx, __cy - rotHandleRef.current.rhy) <= 18) {
+    dragRef.current = { kind: "bg-rotate", centerX: rotHandleRef.current.bcx, centerY: rotHandleRef.current.bcy, startAngle: Math.atan2(__cy - rotHandleRef.current.bcy, __cx - rotHandleRef.current.bcx), startRot: mediaRot };
+    (e.currentTarget as any)?.setPointerCapture?.((e as any).pointerId); return;
+  }
+}
+const fw = frameDims.width, fh = frameDims.height, sw = media.width * mediaScale, sh = media.height * mediaScale;
     const mx = fw / 2 + mediaPan.x - sw / 2, my = fh / 2 + mediaPan.y - sh / 2;
     const fx = (sx - ox) / vs, fy = (sy - oy) / vs;
 
@@ -293,7 +358,7 @@ export default function Page() {
     for (const c of corners) {
       const hcx = Math.max(9, Math.min(cEl.width - 9, c.cx)), hcy = Math.max(9, Math.min(cEl.height - 9, c.cy));
       if (Math.hypot(sx - hcx, sy - hcy) <= 16) {
-        dragRef.current = { kind: "bg-corner", corner: c.key, anchorX: c.ax, anchorY: c.ay, startScale: mediaScale, startDist: Math.max(12, Math.hypot(fx - c.ax, fy - c.ay)) };
+        dragRef.current = { kind: "bg-corner", centerX: fw / 2 + mediaPan.x, centerY: fh / 2 + mediaPan.y, corner: c.key, anchorX: c.ax, anchorY: c.ay, startScale: mediaScale, startDist: Math.max(12, Math.hypot(fx - c.ax, fy - c.ay)) };
         e.currentTarget.setPointerCapture(e.pointerId); return;
       }
     }
@@ -309,6 +374,21 @@ export default function Page() {
   };
 
   const onBgStageMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+  if (screen === "bg-workspace" && rotHandleRef.current && media) {
+    const __r = rotHandleRef.current.canvas.getBoundingClientRect();
+    const __cx = ((e.clientX - __r.left) / Math.max(1, __r.width)) * rotHandleRef.current.cw;
+    const __cy = ((e.clientY - __r.top) / Math.max(1, __r.height)) * rotHandleRef.current.ch;
+    if (dragRef.current?.kind === "bg-rotate") {
+      rotHandleRef.current.canvas.style.cursor = "grabbing";
+      const __a = Math.atan2(__cy - (dragRef.current.centerY ?? 0), __cx - (dragRef.current.centerX ?? 0));
+      let __g = (dragRef.current.startRot ?? 0) + ((__a - (dragRef.current.startAngle ?? 0)) * 180) / Math.PI;
+      __g = ((__g % 360) + 360) % 360; if (__g > 180) __g -= 360;
+      if (e.shiftKey) __g = Math.round(__g / 15) * 15;
+      else { for (const __sn of [-180, -90, 0, 90, 180]) { if (Math.abs(__g - __sn) <= 3) { __g = __sn === -180 ? 180 : __sn; break; } } }
+      const __f = Math.round(__g * 10) / 10; setActiveMediaRotation(__f); setMediaRot(__f); return;
+    }
+    rotHandleRef.current.canvas.style.cursor = Math.hypot(__cx - rotHandleRef.current.rhx, __cy - rotHandleRef.current.rhy) <= 18 ? "grab" : "";
+  }
     if (dragRef.current.kind === "none" || !media || !bgStageCanvasRef.current) return;
     const cEl = bgStageCanvasRef.current, rect = cEl.getBoundingClientRect();
     const sx = (e.clientX - rect.left) * (cEl.width / rect.width), sy = (e.clientY - rect.top) * (cEl.height / rect.height);
@@ -321,7 +401,7 @@ export default function Page() {
       const nw = media.width * ns, nh = media.height * ns;
       const nmx = corner === "tl" || corner === "bl" ? anchorX - nw : anchorX;
       const nmy = corner === "tl" || corner === "tr" ? anchorY - nh : anchorY;
-      setMediaScale(ns); setMediaPan({ x: nmx + nw / 2 - frameDims.width / 2, y: nmy + nh / 2 - frameDims.height / 2 });
+      setMediaScale(ns); setMediaPan({ x: anchorX + (ns / startScale) * ((dragRef.current.centerX ?? frameDims.width / 2) - anchorX) - frameDims.width / 2, y: anchorY + (ns / startScale) * ((dragRef.current.centerY ?? frameDims.height / 2) - anchorY) - frameDims.height / 2 });
     } else if (dragRef.current.kind === "bg-panel") {
       const idx = dragRef.current.panelIdx!, dx = dragRef.current.dx || 0, dy = dragRef.current.dy || 0;
       setPanels((prev) => prev.map((p, i) => {
@@ -551,7 +631,7 @@ export default function Page() {
               </div>
               <div className="absolute z-10 left-[50%] right-[5%] top-[56.5%] bottom-[3.5%] overflow-y-auto pr-2 flex flex-col gap-2">
                 <div className="flex flex-wrap items-end gap-2.5">
-                  <div className="flex flex-col gap-0.5"><label className="text-[10px] font-semibold">Image resize</label><select value={resizeMode} onChange={(e) => applyResizePreset(e.target.value as ResizePreset)} className="h-7 px-2 text-[11px] bg-white border border-neutral-800 rounded-md"><option value="no-resize">No resize ({media.width}x{media.height})</option><option value="1:1">1:1 (1080x1080)</option><option value="4:5">4:5 (1080x1350)</option><option value="9:16">9:16 (1080x1920)</option><option value="16:9">16:9 (1920x1080)</option><option value="custom">Custom</option></select></div>
+                  <div className="flex flex-col gap-0.5"><label className="text-[10px] font-semibold">Image resize</label><div className="flex items-center gap-2"><select value={resizeMode} onChange={(e) => applyResizePreset(e.target.value as ResizePreset)} className="h-7 px-2 text-[11px] bg-white border border-neutral-800 rounded-md"><option value="no-resize">No resize ({media.width}x{media.height})</option><option value="1:1">1:1 (1080x1080)</option><option value="4:5">4:5 (1080x1350)</option><option value="9:16">9:16 (1080x1920)</option><option value="16:9">16:9 (1920x1080)</option><option value="custom">Custom</option></select>{mediaRot !== 0 && (<button type="button" onClick={() => { setActiveMediaRotation(0); setMediaRot(0); }} className="h-7 px-2.5 rounded-md border border-neutral-300 bg-white hover:bg-neutral-100 text-[11px] font-medium text-[#121317] whitespace-nowrap cursor-pointer">{`${Math.round(mediaRot)}° · Reset`}</button>)}</div></div>
                   {resizeMode === "custom" && <div className="flex items-center gap-1.5 text-[11px]"><input type="number" min={64} max={6000} value={customFrameW} onChange={(e) => setCustomFrameW(e.target.value)} className="w-[68px] h-7 px-2 bg-white border border-neutral-800 rounded-md" /><span>x</span><input type="number" min={64} max={6000} value={customFrameH} onChange={(e) => setCustomFrameH(e.target.value)} className="w-[68px] h-7 px-2 bg-white border border-neutral-800 rounded-md" /><span>px</span></div>}
                 </div>
 
