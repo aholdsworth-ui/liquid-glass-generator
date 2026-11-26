@@ -11,12 +11,14 @@ import { PanelResizeHandle, handleToCursor, hitTestPanelHandle, hitTestPanelsLis
 import { GFS_MOMENTUM_FOLDER_ID, DriveItem, getConfiguredGoogleClientId, getDriveAccessToken, listDriveFolderItems, downloadDriveFileDirect , MomentumDropzoneModal } from "@/lib/driveDirectPicker";
 import { RecentUploadItem, RecentCreationItem, getRecentUploads, getRecentCreations, loadBlobAsFile, deleteRecentUpload, saveRecentCreation, deleteRecentCreation, registerExportListener, notifyExportTriggered, onUploadsChanged } from "@/lib/historyStore";
 import { RecentUploadsModal, RecentCreationsModal, RecentCreationsNavButton } from "@/lib/HistoryModals";
+import { HoldingUploadModal } from "@/lib/HoldingUploadModal";
 
 
 type ScreenId = "home" | "slides-pre" | "slides-create-cover" | "slides-fullbleed" | "slides-workspace" | "sticker-cover" | "sticker-sheet" | "bg-upload-cover" | "bg-workspace";
-type ResizePreset = "no-resize" | "1:1" | "4:5" | "9:16" | "16:9" | "custom";
+type ResizePreset = "no-resize" | "16:9-slides" | "16:9-slides" | "1:1" | "4:5" | "9:16" | "16:9" | "custom";
 
 const FORMAT_PRESETS: Record<string, { width: number; height: number }> = {
+  "16:9-slides": { width: 960, height: 540 },
   "1:1": { width: 1080, height: 1080 },
   "4:5": { width: 1080, height: 1350 },
   "9:16": { width: 1080, height: 1920 },
@@ -47,7 +49,7 @@ export default function Page() {
   const [theme, setTheme] = useState<BackgroundTheme>("imagery");
   const [imageryIdx, setImageryIdx] = useState(0);
 
-  const [slideFormat, setSlideFormat] = useState<"1:1" | "4:5" | "9:16" | "16:9">("1:1");
+  const [slideFormat, setSlideFormat] = useState<"16:9-slides" | "1:1" | "4:5" | "9:16" | "16:9">("16:9-slides");
   const [slideShape, setSlideShape] = useState<PanelShape>("text-panel");
   const [slideW, setSlideW] = useState("420");
   const [slideH, setSlideH] = useState("180");
@@ -80,6 +82,22 @@ export default function Page() {
   const [exportingMotion, setExportingMotion] = useState<null | { fmt: "mp4" | "gif"; pct: number }>(null);
 
   const [showMomentumModal, setShowMomentumModal] = useState(false);
+  const [showHoldingModal, setShowHoldingModal] = useState(false);
+  const [holdingMedia, setHoldingMedia] = useState<LoadedMedia | null>(null);
+  const [holdingLoading, setHoldingLoading] = useState(false);
+  const [holdingErr, setHoldingErr] = useState("");
+  const openHoldingImageFile = async (file: File) => {
+    setHoldingLoading(true); setHoldingErr("");
+    try {
+      const m = await loadUniversalMediaFile(file);
+      const sc = document.createElement("canvas"); sc.width = 24; sc.height = 24;
+      const sx = sc.getContext("2d")!; sx.drawImage(getMediaFrameAt(m, 0), 0, 0, 24, 24);
+      const d = sx.getImageData(0, 0, 24, 24).data; let lum = 0, wh = 0;
+      for (let i = 0; i < d.length; i += 4) { lum += 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2]; if (d[i] > 240 && d[i+1] > 240 && d[i+2] > 240) wh++; }
+      if (wh > 288) { setTheme("white"); setSlideOpacity(80); } else if (lum / 576 < 45) { setTheme("grey1200"); setSlideOpacity(40); } else { setTheme("imagery"); setSlideOpacity(35); }
+      setHoldingMedia(m); setSlideFormat("16:9-slides"); setShowHoldingModal(false); setScreen("slides-workspace");
+    } catch (err: any) { setHoldingErr(err?.message || "Could not load file."); } finally { setHoldingLoading(false); }
+  };
   const [clientIdInput, setClientIdInput] = useState("");
   const [driveToken, setDriveToken] = useState("");
   const [driveStack, setDriveStack] = useState<{ id: string; name: string }[]>([{ id: GFS_MOMENTUM_FOLDER_ID, name: "GFS Momentum" }]);
@@ -128,6 +146,7 @@ export default function Page() {
     const url = theme === "imagery" ? (BG_ASSETS.imageryExamples[imageryIdx] || BG_ASSETS.imageryExamples[0]) : theme === "grey1200" ? BG_ASSETS.grey1200 : BG_ASSETS.white;
     const pw = Math.max(60, parseInt(slideW || "420", 10) || 420), ph = slideShape === "circle" ? pw : Math.max(60, parseInt(slideH || "180", 10) || 180);
     setSlidePos({ x: Math.round((width - pw) / 2), y: Math.round((height - ph) / 2) });
+    if (holdingMedia) { const c = document.createElement("canvas"); c.width = width; c.height = height; const hs = Math.max(width / holdingMedia.width, height / holdingMedia.height); c.getContext("2d")!.drawImage(getMediaFrameAt(holdingMedia, 0), (width - holdingMedia.width * hs) / 2, (height - holdingMedia.height * hs) / 2, holdingMedia.width * hs, holdingMedia.height * hs); slideBgImgRef.current = c; return; }
     if (url) {
       const im = new Image();
       im.onload = () => {
@@ -139,13 +158,14 @@ export default function Page() {
       im.onerror = () => { slideBgImgRef.current = makeFallbackSlideBg(width, height, theme); };
       im.src = url;
     } else slideBgImgRef.current = makeFallbackSlideBg(width, height, theme);
-  }, [screen, slideFormat, theme, imageryIdx]);
+  }, [screen, slideFormat, theme, imageryIdx, holdingMedia]);
 
   useEffect(() => {
     if (screen !== "slides-workspace") return;
     let raf = 0;
     const render = () => {
       const c = slideCanvasRef.current, bg = slideBgImgRef.current;
+      if (holdingMedia && holdingMedia.isMotion && bg) { const { width: hw, height: hh } = FORMAT_PRESETS[slideFormat]; const hs = Math.max(hw / holdingMedia.width, hh / holdingMedia.height); const hx = (bg as HTMLCanvasElement).getContext("2d")!; hx.clearRect(0, 0, hw, hh); hx.drawImage(getMediaFrameAt(holdingMedia, performance.now()), (hw - holdingMedia.width * hs) / 2, (hh - holdingMedia.height * hs) / 2, holdingMedia.width * hs, holdingMedia.height * hs); }
       if (c && bg) {
         const { width, height } = FORMAT_PRESETS[slideFormat];
         if (c.width !== width || c.height !== height) { c.width = width; c.height = height; }
@@ -162,7 +182,7 @@ export default function Page() {
     };
     raf = requestAnimationFrame(render);
     return () => cancelAnimationFrame(raf);
-  }, [screen, slideFormat, slideW, slideH, slideShape, theme, slideOpacity, slidePos]);
+  }, [screen, slideFormat, slideW, slideH, slideShape, theme, slideOpacity, slidePos, holdingMedia]);
 
   useEffect(() => {
     if (screen !== "bg-workspace" || !media) return;
@@ -474,7 +494,7 @@ const fw = frameDims.width, fh = frameDims.height, sw = media.width * mediaScale
     else if (screen === "sticker-cover" || screen === "slides-create-cover") setScreen("slides-pre");
     else if (screen === "sticker-sheet") setScreen("sticker-cover");
     else if (screen === "slides-fullbleed") setScreen("slides-create-cover");
-    else if (screen === "slides-workspace") setScreen(theme === "imagery" ? "slides-fullbleed" : "slides-create-cover");
+    else if (screen === "slides-workspace") setScreen(holdingMedia ? "slides-create-cover" : theme === "imagery" ? "slides-fullbleed" : "slides-create-cover");
     else if (screen === "bg-workspace") setScreen("bg-upload-cover");
     else setScreen("home");
   };
@@ -582,6 +602,7 @@ const fw = frameDims.width, fh = frameDims.height, sw = media.width * mediaScale
 
       <RecentUploadsModal open={showRecentUploads} items={recentUploads} onClose={() => setShowRecentUploads(false)} onPickUpload={async (u) => { setShowRecentUploads(false); const f = await loadBlobAsFile(u.blobKey, u.name, u.type); if (f) applyLoadedMedia(await loadUniversalMediaFile(f)); }} onPickNewFile={async (f) => { setShowRecentUploads(false); applyLoadedMedia(await loadUniversalMediaFile(f)); }} onDeleteUpload={async (id) => { await deleteRecentUpload(id); setRecentUploads(await getRecentUploads()); }} />
       <RecentCreationsModal open={showRecentCreations} items={recentCreations} onClose={() => setShowRecentCreations(false)} onRestore={handleRestoreCreation} onDelete={async (id) => { await deleteRecentCreation(id); setRecentCreations(await getRecentCreations()); }} />
+      <HoldingUploadModal open={showHoldingModal} driveUrl={GFS_MOMENTUM_DRIVE_URL} loading={holdingLoading} error={holdingErr} onClose={() => setShowHoldingModal(false)} onSelectFile={openHoldingImageFile} />
       {showMomentumModal && <MomentumDropzoneModal onClose={() => setShowMomentumModal(false)} onSelectFile={async (f: File) => { setShowMomentumModal(false); applyLoadedMedia(await loadUniversalMediaFile(f)); }} />}
 
       {screen !== "sticker-sheet" ? (
@@ -589,7 +610,19 @@ const fw = frameDims.width, fh = frameDims.height, sw = media.width * mediaScale
           {screen === "home" && <><img src={PAGE_ASSETS.home} alt="Welcome" className="w-full h-full object-cover select-none" />{renderZones(BUTTON_ZONES.home, [() => setScreen("bg-upload-cover"), () => setScreen("slides-pre")])}</>}
           {screen === "slides-pre" && <><img src={PAGE_ASSETS.slidesPreCover} alt="Slides" className="w-full h-full object-cover select-none" />{renderZones(BUTTON_ZONES.slidesPreCover, [() => setScreen("sticker-cover"), () => setScreen("slides-create-cover")])}</>}
           {screen === "sticker-cover" && <><img src={PAGE_ASSETS.stickerCover} alt="Stickers" className="w-full h-full  select-none h-auto block" />{renderZones(BUTTON_ZONES.stickerCover, [() => { setTheme("imagery"); setStickerFilter("all"); setScreen("sticker-sheet"); }, () => { setTheme("grey1200"); setStickerFilter("all"); setScreen("sticker-sheet"); }, () => { setTheme("white"); setStickerFilter("all"); setScreen("sticker-sheet"); }])}</>}
-          {screen === "slides-create-cover" && <><img src={PAGE_ASSETS.slidesCreateCover} alt="Create" className="w-full h-full object-cover select-none" />{renderZones(BUTTON_ZONES.slidesCreateCover, [() => { setTheme("imagery"); setSlideOpacity(50); setScreen("slides-fullbleed"); }, () => { setTheme("grey1200"); setSlideOpacity(50); setScreen("slides-workspace"); }, () => { setTheme("white"); setSlideOpacity(50); setScreen("slides-workspace"); }])}</>}
+          {screen === "slides-create-cover" && (
+            <div className="relative w-full h-full">
+              <img src={PAGE_ASSETS.slidesCreateCover} alt="Create" className="w-full h-full object-cover select-none pointer-events-none" />
+              {BUTTON_ZONES.slidesCreateCover.map((z, zi) => (
+                <button key={zi} type="button" onClick={() => {
+                  if (zi === 0) { setHoldingMedia(null); setTheme("imagery"); setSlideOpacity(35); setScreen("slides-fullbleed"); }
+                  else if (zi === 1) { setHoldingMedia(null); setTheme("grey1200"); setSlideOpacity(40); setSlideFormat("16:9-slides"); setScreen("slides-workspace"); }
+                  else if (zi === 2) { setHoldingMedia(null); setTheme("white"); setSlideOpacity(80); setSlideFormat("16:9-slides"); setScreen("slides-workspace"); }
+                  else { setHoldingErr(""); setShowHoldingModal(true); }
+                }} style={{ left: `${z.left}%`, top: `${z.top}%`, width: `${z.width}%`, height: `${z.height}%` }} className="absolute z-10 rounded-full hover:bg-black/[0.04] transition cursor-pointer" />
+              ))}
+            </div>
+          )}
           {screen === "slides-fullbleed" && <><img src={PAGE_ASSETS.slidesFullBleedCover} alt="Examples" className="w-full h-full object-cover select-none" />{renderZones(BUTTON_ZONES.fullBleedPhotos, [0,1,2,3].map((i) => () => { setImageryIdx(i); setTheme("imagery"); setSlideOpacity(50); setScreen("slides-workspace"); }))}</>}
           {screen === "bg-upload-cover" && <><img src={PAGE_ASSETS.bgUploadCover} alt="Upload" className="w-full h-full object-cover select-none" />{renderZones(BUTTON_ZONES.bgUploadCover, [() => fileInputRef.current?.click(), () => openMomentumDriveBrowser()])}</>}
 
@@ -618,8 +651,9 @@ const fw = frameDims.width, fh = frameDims.height, sw = media.width * mediaScale
               </div>
               <div className="absolute z-10 left-[50%] right-[6%] top-[55%] bottom-[4%] flex flex-col gap-2">
                 <div className="flex flex-wrap items-end gap-3">
-                  <div className="flex flex-col gap-0.5"><label className="text-[10px] font-semibold">Format</label><select value={slideFormat} onChange={(e) => setSlideFormat(e.target.value as any)} className="h-7 px-2 text-[11px] bg-white border border-neutral-800 rounded-md"><option value="1:1">1:1</option><option value="4:5">4:5</option><option value="9:16">9:16</option><option value="16:9">16:9</option></select></div>
+                  <div className="flex flex-col gap-0.5"><label className="text-[10px] font-semibold">Format</label><select value={slideFormat} onChange={(e) => setSlideFormat(e.target.value as any)} className="h-7 px-2 text-[11px] bg-white border border-neutral-800 rounded-md"><option value="16:9-slides">16:9 Slides (960x540px)</option><option value="1:1">1:1</option><option value="4:5">4:5</option><option value="9:16">9:16</option><option value="16:9">16:9</option></select></div>
                   <div className="flex flex-col gap-0.5"><label className="text-[10px] font-semibold">Shape</label><select value={slideShape} onChange={(e) => setSlideShape(e.target.value as PanelShape)} className="h-7 px-2 text-[11px] bg-white border border-neutral-800 rounded-md"><option value="text-panel">Text panel</option><option value="circle">Circle</option><option value="cta-pill">CTA pill</option></select></div>
+                  {holdingMedia && <div className="flex flex-col gap-0.5"><label className="text-[10px] font-semibold">Rim calibration</label><select value={theme} onChange={(e) => { const nt = e.target.value as BackgroundTheme; setTheme(nt); setSlideOpacity(nt === "white" ? 80 : nt === "grey1200" ? 40 : 35); }} className="h-7 px-2 text-[11px] font-medium bg-white border border-neutral-800 rounded-md"><option value="imagery">Full bleed image</option><option value="grey1200">Grey 1200</option><option value="white">White</option></select></div>}
                 </div>
                 <div className="flex flex-col gap-0.5"><label className="text-[10px] font-semibold">Size</label><div className="flex items-center gap-2 text-[11px]"><input type="number" min={24} max={4000} value={slideW} onChange={(e) => setSlideW(e.target.value)} className="w-[72px] h-7 px-2 bg-white border border-neutral-800 rounded-md" /><span>{slideShape === "circle" ? "px diameter" : "px wide x"}</span>{slideShape !== "circle" && <><input type="number" min={24} max={4000} value={slideH} onChange={(e) => setSlideH(e.target.value)} className="w-[72px] h-7 px-2 bg-white border border-neutral-800 rounded-md" /><span>px high</span></>}</div></div>
                 <div className="flex flex-col gap-0.5 max-w-[260px]"><div className="flex justify-between text-[10px]"><span className="font-semibold">Opacity</span><span className="text-neutral-500">{slideOpacity}%</span></div><input type="range" min={0} max={100} value={slideOpacity} onChange={(e) => setSlideOpacity(Number(e.target.value))} className="w-full accent-neutral-900 h-1.5 bg-neutral-300 rounded-lg cursor-pointer" /></div>
@@ -639,7 +673,7 @@ const fw = frameDims.width, fh = frameDims.height, sw = media.width * mediaScale
               </div>
               <div className="absolute z-10 left-[50%] right-[5%] top-[56.5%] bottom-[3.5%] overflow-y-auto pr-2 flex flex-col gap-2">
                 <div className="flex flex-wrap items-end gap-2.5">
-                  <div className="flex flex-col gap-0.5"><label className="text-[10px] font-semibold">Image resize</label><div className="flex items-center gap-2"><select value={resizeMode} onChange={(e) => applyResizePreset(e.target.value as ResizePreset)} className="h-7 px-2 text-[11px] bg-white border border-neutral-800 rounded-md"><option value="no-resize">No resize ({media.width}x{media.height})</option><option value="1:1">1:1 (1080x1080)</option><option value="4:5">4:5 (1080x1350)</option><option value="9:16">9:16 (1080x1920)</option><option value="16:9">16:9 (1920x1080)</option><option value="custom">Custom</option></select>{mediaRot !== 0 && (<button type="button" onClick={() => { setActiveMediaRotation(0); setMediaRot(0); }} className="h-7 px-2.5 rounded-md border border-neutral-300 bg-white hover:bg-neutral-100 text-[11px] font-medium text-[#121317] whitespace-nowrap cursor-pointer">{`${Math.round(mediaRot)}° · Reset`}</button>)}</div></div>
+                  <div className="flex flex-col gap-0.5"><label className="text-[10px] font-semibold">Image resize</label><div className="flex items-center gap-2"><select value={resizeMode} onChange={(e) => applyResizePreset(e.target.value as ResizePreset)} className="h-7 px-2 text-[11px] bg-white border border-neutral-800 rounded-md"><option value="no-resize">No resize ({media.width}x{media.height})</option><option value="16:9-slides">16:9 Slides (960x540px)</option><option value="1:1">1:1 (1080x1080)</option><option value="4:5">4:5 (1080x1350)</option><option value="9:16">9:16 (1080x1920)</option><option value="16:9">16:9 (1920x1080)</option><option value="custom">Custom</option></select>{mediaRot !== 0 && (<button type="button" onClick={() => { setActiveMediaRotation(0); setMediaRot(0); }} className="h-7 px-2.5 rounded-md border border-neutral-300 bg-white hover:bg-neutral-100 text-[11px] font-medium text-[#121317] whitespace-nowrap cursor-pointer">{`${Math.round(mediaRot)}° · Reset`}</button>)}</div></div>
                   {resizeMode === "custom" && <div className="flex items-center gap-1.5 text-[11px]"><input type="number" min={64} max={6000} value={customFrameW} onChange={(e) => setCustomFrameW(e.target.value)} className="w-[68px] h-7 px-2 bg-white border border-neutral-800 rounded-md" /><span>x</span><input type="number" min={64} max={6000} value={customFrameH} onChange={(e) => setCustomFrameH(e.target.value)} className="w-[68px] h-7 px-2 bg-white border border-neutral-800 rounded-md" /><span>px</span></div>}
                 </div>
 
