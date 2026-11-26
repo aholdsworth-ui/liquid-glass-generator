@@ -6,6 +6,7 @@ import { PAGE_ASSETS, BG_ASSETS, BUTTON_ZONES, GFS_MOMENTUM_DRIVE_URL, ZoneRect 
 import { PanelShape, BackgroundTheme, STICKER_CATEGORIES, renderStandaloneGlassPanel, generateStandaloneGlassSvg, renderRefractedGlassPatch } from "@/lib/liquidGlassEngine";
 import { LoadedMedia, PanelInstance, loadUniversalMediaFile, getMediaFrameAt, renderFrameWithPanels, setActiveMediaRotation, exportMultiPanelSvg, exportCompositedMp4 } from "@/lib/mediaSupport";
 import { exportCompositedGif } from "@/lib/gifStudioEncoder";
+import { drawVisualGuideGrid } from "@/lib/visualGuideGrid";
 import { PanelResizeHandle, handleToCursor, hitTestPanelHandle, hitTestPanelsList, computePanelResize, drawPanelHandlesOnCtx, drawStagePanelsHandles } from "@/lib/panelResizeHelper";
 import { GFS_MOMENTUM_FOLDER_ID, DriveItem, getConfiguredGoogleClientId, getDriveAccessToken, listDriveFolderItems, downloadDriveFileDirect , MomentumDropzoneModal } from "@/lib/driveDirectPicker";
 import { RecentUploadItem, RecentCreationItem, getRecentUploads, getRecentCreations, loadBlobAsFile, deleteRecentUpload, saveRecentCreation, deleteRecentCreation, registerExportListener, notifyExportTriggered, onUploadsChanged } from "@/lib/historyStore";
@@ -60,6 +61,7 @@ export default function Page() {
   const [customFrameW, setCustomFrameW] = useState("1920");
   const [customFrameH, setCustomFrameH] = useState("1080");
   const [mediaScale, setMediaScale] = useState(1);
+  const [visualGuide, setVisualGuide] = useState(0);
   const [mediaRot, setMediaRot] = useState(0);
   const rotHandleRef = useRef<{ rhx: number; rhy: number; bcx: number; bcy: number; cw: number; ch: number; canvas: HTMLCanvasElement } | null>(null);
   const rotCorner = (c: any, cx: number, cy: number, deg: number) => {
@@ -224,7 +226,7 @@ export default function Page() {
   const tx = bcx + Math.sin(rad) * (bh / 2), ty = bcy - Math.cos(rad) * (bh / 2);
   const rhx = Math.max(18, Math.min(cw - 18, bcx + Math.sin(rad) * (bh / 2 + 26)));
   const rhy = Math.max(18, Math.min(ch - 18, bcy - Math.cos(rad) * (bh / 2 + 26)));
-  rotHandleRef.current = { rhx, rhy, bcx, bcy, cw, ch, canvas: ctx.canvas };
+  drawVisualGuideGrid(ctx, viewTransformRef.current.ox, viewTransformRef.current.oy, viewTransformRef.current.scale, frameDims.width, frameDims.height, visualGuide); rotHandleRef.current = { rhx, rhy, bcx, bcy, cw, ch, canvas: ctx.canvas };
   drawStagePanelsHandles(ctx, panels, pPanels, ox, oy, null, null, frameDims.width, frameDims.height, dragRef.current.kind === "bg-panel-resize" ? (dragRef.current.panelIdx ?? -1) : -1);
     const act = dragRef.current?.kind === "bg-rotate";
   ctx.save();
@@ -259,7 +261,7 @@ export default function Page() {
     };
     raf = requestAnimationFrame(renderLoop);
     return () => cancelAnimationFrame(raf);
-  }, [screen, media, frameDims.width, frameDims.height, mediaScale, mediaPan, mediaRot, panels, bgOpacity, exportingMotion?.fmt]);
+  }, [screen, media, frameDims.width, frameDims.height, mediaScale, mediaPan, visualGuide, mediaRot, panels, bgOpacity, exportingMotion?.fmt]);
 
   const applyLoadedMedia = (loaded: LoadedMedia) => {
     setMedia(loaded); setResizeMode("no-resize"); setCustomFrameW(String(loaded.width)); setCustomFrameH(String(loaded.height));
@@ -643,7 +645,7 @@ const fw = frameDims.width, fh = frameDims.height, sw = media.width * mediaScale
 
                 {panels.map((p, idx) => (
                   <div key={p.id} className={idx > 0 ? "pt-2 border-t border-neutral-200 space-y-1.5" : "space-y-1.5"}>
-                    <div className="flex flex-wrap items-end gap-2.5">
+                    <div className="flex flex-col gap-1 max-w-[260px]"><label className="text-[11px] font-semibold text-[#121317] leading-tight">Visual guide</label><div className="flex items-center gap-2"><span onClick={() => setVisualGuide(0)} className={`text-[10px] whitespace-nowrap select-none cursor-pointer ${visualGuide === 0 ? "font-semibold text-[#121317]" : "text-neutral-500"}`}>Grid off</span><input type="range" min={0} max={100} step={1} value={visualGuide} onChange={(e) => setVisualGuide(Number(e.target.value))} aria-label="Visual guide" className="w-full accent-[#121317] cursor-pointer h-1.5 bg-neutral-300 rounded-lg" /><span onClick={() => setVisualGuide(100)} className={`text-[10px] whitespace-nowrap select-none cursor-pointer ${visualGuide === 100 ? "font-semibold text-[#121317]" : "text-neutral-500"}`}>Max</span></div></div><div className="flex flex-wrap items-end gap-2.5">
                       <div className="flex flex-col gap-0.5"><label className="text-[10px] font-semibold">{idx === 0 ? "Shape" : `Panel ${idx + 1} shape`}</label><select value={p.shape} onChange={(e) => { const sh = e.target.value as PanelShape; setPanels((prev) => prev.map((it, i) => (i === idx ? { ...it, shape: sh } : it))); }} className="h-7 px-2 text-[11px] bg-white border border-neutral-800 rounded-md"><option value="text-panel">Text panel</option><option value="circle">Circle</option><option value="cta-pill">CTA pill</option></select></div>
                       <div className="flex flex-col gap-0.5"><label className="text-[10px] font-semibold">Rim calibration</label><select value={p.theme} onChange={(e) => { const th = e.target.value as BackgroundTheme; setPanels((prev) => prev.map((it, i) => (i === idx ? { ...it, theme: th } : it))); }} className="h-7 px-2 text-[11px] bg-white border border-neutral-800 rounded-md"><option value="imagery">Full bleed image</option><option value="grey1200">Grey 1200</option><option value="white">White</option></select></div>
                     </div>
