@@ -72,16 +72,16 @@ export function renderStandaloneGlassPanel(opts: {
   const h = Math.max(16, Math.round(opts.height));
   const r = getCornerRadius(w, h, opts.shape, opts.customRadius ?? 20);
   const sRaw = Math.max(0, Math.min(1, opts.frostOpacity));
-  const s = opts.theme === "grey1200" ? sRaw * 0.5 : sRaw;
+  const s = sRaw;
   const sh = getShadowMetrics(w, h, opts.theme);
-  const pad = opts.includeShadow === false ? 0 : sh.pad;
+  const pad = opts.includeShadow === true ? sh.pad : 0;
 
   const canvas = document.createElement("canvas");
   canvas.width = w + pad * 2;
   canvas.height = h + pad * 2;
   const ctx = canvas.getContext("2d")!;
 
-  if (opts.includeShadow !== false) {
+  if (opts.includeShadow === true) {
     ctx.save();
     ctx.filter = `blur(${sh.sigma.toFixed(2)}px)`;
     ctx.fillStyle = `rgba(0,0,0,${sh.alpha})`;
@@ -97,21 +97,14 @@ export function renderStandaloneGlassPanel(opts: {
     ctx.restore();
   }
 
-  if (opts.theme === "white") {
-    ctx.save();
-    drawRoundedRectPath(ctx, pad, pad, w, h, r);
-    ctx.strokeStyle = "rgba(182,185,190,0.26)";
-    ctx.lineWidth = 0.8;
-    ctx.stroke();
-    ctx.restore();
-  }
+
 
   ctx.save();
   drawRoundedRectPath(ctx, pad, pad, w, h, r);
   ctx.clip();
 
-  const baseAlpha = opts.theme === "grey1200" ? 0.05 + s * 0.34 : opts.theme === "white" ? Math.min(0.85, 0.07 + s * 0.50) : 0.05 + s * 0.34;
-  const rgb = opts.theme === "white" ? "244,244,243" : opts.theme === "grey1200" ? "246,246,247" : "252,252,250";
+  const baseAlpha = opts.theme === "grey1200" ? 0.05 + s * 0.34 : opts.theme === "white" ? Math.min(0.88, 0.15 + s * 0.50) : 0.05 + s * 0.34;
+  const rgb = opts.theme === "white" ? "239,241,244" : opts.theme === "grey1200" ? "246,246,247" : "252,252,250";
   const fg = ctx.createLinearGradient(0, pad, 0, pad + h);
   fg.addColorStop(0, `rgba(${rgb},${Math.min(0.86, baseAlpha * 0.96).toFixed(3)})`);
   fg.addColorStop(1, `rgba(${rgb},${Math.min(0.86, baseAlpha * 1.03).toFixed(3)})`);
@@ -133,10 +126,25 @@ export function renderStandaloneGlassPanel(opts: {
   ctx.stroke();
   ctx.restore();
 
-  drawRoundedRectPath(ctx, pad + 0.55, pad + 0.55, w - 1.1, h - 1.1, Math.max(0, r - 0.55));
-  ctx.strokeStyle = opts.theme === "white" ? "rgba(255,255,255,0.92)" : opts.theme === "grey1200" ? "rgba(248,249,250,0.74)" : "rgba(248,249,248,0.54)";
-  ctx.lineWidth = opts.theme === "imagery" ? 1.05 : 1.15;
-  ctx.stroke();
+  if (opts.theme === "white") {
+    drawRoundedRectPath(ctx, pad + 1.5, pad + 1.5, Math.max(1, w - 3), Math.max(1, h - 3), Math.max(0, r - 1.5));
+    ctx.strokeStyle = "rgba(255,255,255,0.95)";
+    ctx.lineWidth = 1.15;
+    ctx.stroke();
+    const rg = ctx.createLinearGradient(0, pad, 0, pad + h);
+    rg.addColorStop(0, "rgba(182,186,194,0.48)");
+    rg.addColorStop(0.55, "rgba(162,168,178,0.58)");
+    rg.addColorStop(1, "rgba(138,144,156,0.70)");
+    drawRoundedRectPath(ctx, pad + 0.5, pad + 0.5, w - 1, h - 1, Math.max(0, r - 0.5));
+    ctx.strokeStyle = rg;
+    ctx.lineWidth = 1.0;
+    ctx.stroke();
+  } else {
+    drawRoundedRectPath(ctx, pad + 0.55, pad + 0.55, w - 1.1, h - 1.1, Math.max(0, r - 0.55));
+    ctx.strokeStyle = opts.theme === "grey1200" ? "rgba(248,249,250,0.74)" : "rgba(248,249,250,0.54)";
+    ctx.lineWidth = opts.theme === "imagery" ? 1.05 : 1.15;
+    ctx.stroke();
+  }
   ctx.restore();
   return canvas;
 }
@@ -148,7 +156,7 @@ export function getCachedGlassPanel(opts: { width: number; height: number; shape
   if (hit) return hit;
   if (panelCache.size > 48) panelCache.clear();
   const sh = getShadowMetrics(opts.width, opts.height, opts.theme);
-  const canvas = renderStandaloneGlassPanel(opts);
+  const canvas = renderStandaloneGlassPanel({ ...opts, includeShadow: true });
   const entry = { canvas, pad: sh.pad };
   panelCache.set(key, entry);
   return entry;
@@ -196,16 +204,18 @@ export function drawCompositedStageFrame(
 export function generateStandaloneGlassSvg(opts: { width: number; height: number; shape: PanelShape; theme: BackgroundTheme; frostOpacity: number; includeShadow?: boolean }): string {
   const w = Math.max(16, Math.round(opts.width)), h = Math.max(16, Math.round(opts.height));
   const r = getCornerRadius(w, h, opts.shape, 20);
-  const s = opts.theme === "grey1200" ? Math.max(0, Math.min(1, opts.frostOpacity)) * 0.5 : Math.max(0, Math.min(1, opts.frostOpacity));
-  const sh = getShadowMetrics(w, h, opts.theme), pad = opts.includeShadow === false ? 0 : sh.pad;
-  const baseA = opts.theme === "grey1200" ? 0.05 + s * 0.34 : opts.theme === "white" ? Math.min(0.85, 0.07 + s * 0.50) : 0.05 + s * 0.34;
-  const fc = opts.theme === "white" ? "#F4F4F3" : opts.theme === "grey1200" ? "#F6F6F7" : "#FCFCFA";
+  const s = Math.max(0, Math.min(1, opts.frostOpacity));
+  const sh = getShadowMetrics(w, h, opts.theme), pad = opts.includeShadow === true ? sh.pad : 0;
+  const baseA = opts.theme === "white" ? Math.min(0.88, 0.15 + s * 0.50) : 0.05 + s * 0.34;
+  const fc = opts.theme === "white" ? "#EFF1F4" : opts.theme === "grey1200" ? "#F6F6F7" : "#FCFCFA";
   const gs = Math.max(10, Math.min(32, Math.min(w, h) * 0.34));
-  const gm = opts.theme === "grey1200" ? "0.10" : opts.theme === "white" ? "0.42" : "0.28";
-  const gp = opts.theme === "grey1200" ? "0.28" : opts.theme === "white" ? "0.52" : "0.35";
-  const rc = opts.theme === "white" ? "#FFFFFF" : "#F8F9FA";
-  const ro = opts.theme === "white" ? "0.92" : opts.theme === "grey1200" ? "0.74" : "0.54";
-  return `<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" width="${w+pad*2}" height="${h+pad*2}" viewBox="${-pad} ${-pad} ${w+pad*2} ${h+pad*2}" fill="none"><defs><clipPath id="pc"><rect x="0" y="0" width="${w}" height="${h}" rx="${r}" ry="${r}"/></clipPath><mask id="sm" maskUnits="userSpaceOnUse" x="${-pad}" y="${-pad}" width="${w+pad*2}" height="${h+pad*2}"><rect x="${-pad}" y="${-pad}" width="${w+pad*2}" height="${h+pad*2}" fill="#FFF"/><rect x="0" y="0" width="${w}" height="${h}" rx="${r}" ry="${r}" fill="#000"/></mask><filter id="sb" x="-35%" y="-35%" width="170%" height="170%"><feGaussianBlur stdDeviation="${sh.sigma.toFixed(2)}"/></filter><filter id="gb" x="-25%" y="-25%" width="150%" height="150%"><feGaussianBlur stdDeviation="${(gs*0.42).toFixed(1)}"/></filter><linearGradient id="ff" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="${fc}" stop-opacity="${Math.min(0.86,baseA*0.96).toFixed(3)}"/><stop offset="100%" stop-color="${fc}" stop-opacity="${Math.min(0.86,baseA*1.03).toFixed(3)}"/></linearGradient><linearGradient id="bg" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#FFF" stop-opacity="0.03"/><stop offset="45%" stop-color="#FFF" stop-opacity="${gm}"/><stop offset="100%" stop-color="#FFF" stop-opacity="${gp}"/></linearGradient></defs>${opts.includeShadow === false ? "" : `<g mask="url(#sm)"><rect x="0" y="${sh.offsetY.toFixed(2)}" width="${w}" height="${h}" rx="${r}" ry="${r}" fill="#000" fill-opacity="${sh.alpha.toFixed(3)}" filter="url(#sb)"/></g>`}${opts.theme==="white"?`<rect x="0" y="0" width="${w}" height="${h}" rx="${r}" ry="${r}" stroke="#B6B9BE" stroke-opacity="0.26" stroke-width="0.8"/>`:""}<g clip-path="url(#pc)"><rect x="0" y="0" width="${w}" height="${h}" rx="${r}" ry="${r}" fill="url(#ff)"/><rect x="0" y="0" width="${w}" height="${h}" rx="${r}" ry="${r}" stroke="url(#bg)" stroke-width="${gs.toFixed(1)}" filter="url(#gb)"/><rect x="0.55" y="0.55" width="${w-1.1}" height="${h-1.1}" rx="${Math.max(0,r-0.55)}" ry="${Math.max(0,r-0.55)}" stroke="${rc}" stroke-opacity="${ro}" stroke-width="1.15"/></g></svg>`;
+  const gm = opts.theme === "grey1200" ? "0.10" : opts.theme === "white" ? "0.38" : "0.28";
+  const gp = opts.theme === "grey1200" ? "0.28" : opts.theme === "white" ? "0.48" : "0.35";
+  const rimSvg = opts.theme === "white"
+    ? `<rect x="1.5" y="1.5" width="${Math.max(1,w-3)}" height="${Math.max(1,h-3)}" rx="${Math.max(0,r-1.5)}" fill="none" stroke="#FFFFFF" stroke-opacity="0.95" stroke-width="1.15"/><rect x="0.5" y="0.5" width="${w-1}" height="${h-1}" rx="${Math.max(0,r-0.5)}" fill="none" stroke="url(#wrim)" stroke-width="1"/>`
+    : `<rect x="0.55" y="0.55" width="${w-1.1}" height="${h-1.1}" rx="${Math.max(0,r-0.55)}" fill="none" stroke="#F8F9FA" stroke-opacity="${opts.theme === "grey1200" ? "0.74" : "0.54"}" stroke-width="1.1"/>`;
+  const shSvg = opts.includeShadow === true ? `<g mask="url(#osh)"><rect x="0" y="${sh.offsetY.toFixed(2)}" width="${w}" height="${h}" rx="${r}" fill="#000" fill-opacity="${sh.alpha}" filter="url(#dsh)"/></g>` : "";
+  return `<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" width="${w+pad*2}" height="${h+pad*2}" viewBox="${-pad} ${-pad} ${w+pad*2} ${h+pad*2}" fill="none"><defs><clipPath id="pc"><rect x="0" y="0" width="${w}" height="${h}" rx="${r}"/></clipPath><mask id="osh" maskUnits="userSpaceOnUse" x="${-pad}" y="${-pad}" width="${w+pad*2}" height="${h+pad*2}"><rect x="${-pad}" y="${-pad}" width="${w+pad*2}" height="${h+pad*2}" fill="#FFF"/><rect x="0" y="0" width="${w}" height="${h}" rx="${r}" fill="#000"/></mask><filter id="dsh" x="-35%" y="-35%" width="170%" height="170%"><feGaussianBlur stdDeviation="${sh.sigma.toFixed(2)}"/></filter><filter id="igl" x="-25%" y="-25%" width="150%" height="150%"><feGaussianBlur stdDeviation="${(gs*0.42).toFixed(1)}"/></filter><linearGradient id="ff" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="${fc}" stop-opacity="${(baseA*0.96).toFixed(3)}"/><stop offset="100%" stop-color="${fc}" stop-opacity="${Math.min(0.9,baseA*1.03).toFixed(3)}"/></linearGradient><linearGradient id="bsg" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#FFF" stop-opacity="0.03"/><stop offset="45%" stop-color="#FFF" stop-opacity="${gm}"/><stop offset="100%" stop-color="#FFF" stop-opacity="${gp}"/></linearGradient><linearGradient id="wrim" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#B6BAC2" stop-opacity="0.48"/><stop offset="55%" stop-color="#A2A8B2" stop-opacity="0.58"/><stop offset="100%" stop-color="#8A909C" stop-opacity="0.70"/></linearGradient></defs>${shSvg}<g clip-path="url(#pc)"><rect x="0" y="0" width="${w}" height="${h}" rx="${r}" fill="url(#ff)"/><rect x="0" y="0" width="${w}" height="${h}" rx="${r}" fill="none" stroke="url(#bsg)" stroke-width="${gs.toFixed(1)}" filter="url(#igl)"/>${rimSvg}</g></svg>`;
 }
 
 export function generateCompositedMultiGlassSvg(
