@@ -49,31 +49,11 @@ export const BUTTON_ZONES: Record<string, ZoneRect[]> = {
     }
   ],
   "slidesCreateCover": [
-    {
-        "left": 14.49,
-        "top": 46.46,
-        "width": 26.44,
-        "height": 20.96
-    },
-    {
-        "left": 37.98,
-        "top": 46.46,
-        "width": 23.94,
-        "height": 20.96
-    },
-    {
-        "left": 58.97,
-        "top": 46.46,
-        "width": 26.44,
-        "height": 20.96
-    },
-    {
-        "left": 33.5,
-        "top": 76.46,
-        "width": 32.27,
-        "height": 20.41
-    }
-],
+    { "left": 10.0, "top": 51.2, "width": 24.7, "height": 13.8 },
+    { "left": 37.5, "top": 51.2, "width": 24.7, "height": 13.8 },
+    { "left": 65.1, "top": 51.2, "width": 24.7, "height": 13.8 },
+    { "left": 37.5, "top": 81.3, "width": 24.7, "height": 13.9 }
+  ],
   "stickerCover": [
     {
       "left": 24,
