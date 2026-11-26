@@ -210,33 +210,23 @@ export async function exportCompositedMp4(
   });
 }
 
-export async function renderExactCompositedFrame(...a: any[]): Promise<void> {
-  const ctx = a[0]?.getContext ? a[0].getContext("2d") : a[0];
-  const [media, fw, fh, mx, my, sw, sh, panels, op, tSec] = Array.isArray(a[8])
-    ? a.slice(1)
-    : [a[1], a[3], a[4], a[5], a[6], a[7], a[8], a[9], a[10], a[2]];
-  const m: any = media;
-  const v = m.video || m.source || getMediaFrameAt(media, 0);
-  if (typeof HTMLVideoElement !== "undefined" && v instanceof HTMLVideoElement) {
-    const d = Number.isFinite(v.duration) && v.duration > 0 ? v.duration : 10;
-    const tgt = Math.max(0, Math.min(d - 0.02, Number(tSec) || 0));
-    if (Math.abs(v.currentTime - tgt) > 0.015) {
-      await new Promise<void>((res) => {
-        let ok = false;
-        const fin = () => {
-          if (ok) return;
-          ok = true;
-          v.removeEventListener("seeked", fin);
-          res();
-        };
-        v.addEventListener("seeked", fin);
-        setTimeout(fin, 220);
-        try { v.currentTime = tgt; } catch { fin(); }
-      });
-    }
-  }
-  const src = getMediaFrameAt(media, (Number(tSec) || 0) * 1000);
-  renderFrameWithPanels(
-    ctx, Math.round(fw), Math.round(fh), src, mx, my, sw, sh, panels, op
+export async function renderExactCompositedFrame(
+  ctx: CanvasRenderingContext2D, media: LoadedMedia, tSec: number,
+  frameW: number, frameH: number, outW: number, outH: number,
+  mediaX: number, mediaY: number, scaledW: number, scaledH: number,
+  panels: PanelInstance[], primaryOpacity: number
+): Promise<void> {
+  const sx = outW / Math.max(1, frameW), sy = outH / Math.max(1, frameH);
+  const sp = panels.map((pn: any) => ({
+    ...pn, x: pn.x * sx, y: pn.y * sy,
+    ...(pn.width !== undefined ? { width: pn.width * sx } : {}),
+    ...(pn.height !== undefined ? { height: pn.height * sy } : {}),
+    ...(pn.w !== undefined ? { w: pn.w * sx } : {}),
+    ...(pn.h !== undefined ? { h: pn.h * sy } : {}),
+  }));
+  const src = (getMediaFrameAt as any)(media, tSec * 1000);
+  (renderFrameWithPanels as any)(
+    ctx, outW, outH, src, mediaX * sx, mediaY * sy,
+    scaledW * sx, scaledH * sy, sp, primaryOpacity
   );
 }

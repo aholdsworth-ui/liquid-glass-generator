@@ -1,130 +1,144 @@
-const BAYER8 = [
-   0, 32,  8, 40,  2, 34, 10, 42,
-  48, 16, 56, 24, 50, 18, 58, 26,
-  12, 44,  4, 36, 14, 46,  6, 38,
-  60, 28, 52, 20, 62, 30, 54, 22,
-   3, 35, 11, 43,  1, 33,  9, 41,
-  51, 19, 59, 27, 49, 17, 57, 25,
-  15, 47,  7, 39, 13, 45,  5, 37,
-  63, 31, 55, 23, 61, 29, 53, 21,
-];
+export type GlassRect = { x0: number; y0: number; x1: number; y1: number };
+const BIN_IDX = new Int32Array(262144);
+const LUT_NEAR = new Int16Array(262144);
 
-export function buildPalette24(samples: number[][]): number[][] {
-  const pal: number[][] = [[18, 19, 23], [255, 255, 255], [0, 0, 0]];
-  for (let i = 1; i <= 17; i++) {
-    const v = Math.round(24 + (i * 222) / 18);
-    pal.push([v, v, Math.min(255, v + 1)]);
+export function buildFramePalette24(
+  rgba: Uint8ClampedArray, w: number, h: number, rects: GlassRect[]
+): number[][] {
+  const pal: number[][] = [[18, 19, 23], [255, 255, 255]];
+  BIN_IDX.fill(-1);
+  const sumR: number[] = [], sumG: number[] = [], sumB: number[] = [], wts: number[] = [];
+  const addPx = (r: number, g: number, b: number, wt: number) => {
+    if (Math.abs(r - 18) <= 2 && Math.abs(g - 19) <= 2 && Math.abs(b - 23) <= 2) return;
+    if (r >= 253 && g >= 253 && b >= 253) return;
+    const key = ((r >> 2) << 12) | ((g >> 2) << 6) | (b >> 2);
+    let id = BIN_IDX[key];
+    if (id === -1) {
+      id = wts.length; BIN_IDX[key] = id;
+      sumR.push(r * wt); sumG.push(g * wt); sumB.push(b * wt); wts.push(wt);
+    } else {
+      sumR[id] += r * wt; sumG[id] += g * wt; sumB[id] += b * wt; wts[id] += wt;
+    }
+  };
+  const step = Math.max(2, Math.floor(Math.sqrt((w * h) / 22000)));
+  for (let y = 0; y < h; y += step) {
+    for (let x = 0; x < w; x += step) {
+      let wt = 1;
+      for (let r = 0; r < rects.length; r++) {
+        const rc = rects[r];
+        if (x >= rc.x0 && x <= rc.x1 && y >= rc.y0 && y <= rc.y1) { wt = 4; break; }
+      }
+      const i = (y * w + x) << 2;
+      addPx(rgba[i], rgba[i + 1], rgba[i + 2], wt);
+    }
   }
-  const need = 256 - pal.length;
-  const map = new Map<number, number[]>();
-  for (let i = 0; i < samples.length; i++) {
-    const r = samples[i][0], g = samples[i][1], b = samples[i][2];
-    if (Math.abs(r - 18) <= 3 && Math.abs(g - 19) <= 3 && Math.abs(b - 23) <= 3) continue;
-    if (r >= 252 && g >= 252 && b >= 252) continue;
-    const key = ((r >> 1) << 14) | ((g >> 1) << 7) | (b >> 1);
-    const cur = map.get(key);
-    if (cur) cur[3]++;
-    else map.set(key, [r, g, b, 1]);
-  }
-  const all = Array.from(map.values());
-  if (all.length === 0) {
+  const n = wts.length;
+  if (n === 0) {
     while (pal.length < 256) pal.push([128, 128, 128]);
     return pal;
   }
-  all.sort((a, b) => b[3] - a[3]);
-  const pts = all.slice(0, 3500);
-  const m = pts.length;
-  const minD = new Float64Array(m).fill(1e12);
-  const cents: number[][] = [];
-  for (let k = 0; k < need; k++) {
-    let pick = 0, bestS = -1;
-    for (let i = 0; i < m; i++) {
-      const sc = minD[i] * Math.sqrt(pts[i][3]);
-      if (sc > bestS) { bestS = sc; pick = i; }
-    }
-    const c = [pts[pick][0], pts[pick][1], pts[pick][2]];
-    cents.push(c);
-    for (let i = 0; i < m; i++) {
-      const dr = pts[i][0] - c[0], dg = pts[i][1] - c[1], db = pts[i][2] - c[2];
-      const d = dr * dr + dg * dg + db * db;
-      if (d < minD[i]) minD[i] = d;
-    }
+  const bins = new Array<{ r: number; g: number; b: number; w: number }>(n);
+  for (let i = 0; i < n; i++) {
+    const iw = 1 / wts[i];
+    bins[i] = { r: sumR[i] * iw, g: sumG[i] * iw, b: sumB[i] * iw, w: wts[i] };
   }
-  const sums = new Float64Array(need * 3);
-  const wts = new Float64Array(need);
-  for (let it = 0; it < 5; it++) {
-    sums.fill(0);
-    wts.fill(0);
-    for (let i = 0; i < m; i++) {
-      const r = pts[i][0], g = pts[i][1], b = pts[i][2], w = pts[i][3];
-      let best = 0, bd = 1e12;
-      for (let k = 0; k < need; k++) {
-        const dr = r - cents[k][0], dg = g - cents[k][1], db = b - cents[k][2];
-        const d = dr * dr + dg * dg + db * db;
-        if (d < bd) { bd = d; best = k; }
-      }
-      wts[best] += w;
-      sums[best * 3] += r * w;
-      sums[best * 3 + 1] += g * w;
-      sums[best * 3 + 2] += b * w;
+  if (n <= 254) {
+    for (let i = 0; i < n; i++) {
+      pal.push([Math.round(bins[i].r), Math.round(bins[i].g), Math.round(bins[i].b)]);
     }
-    for (let k = 0; k < need; k++) {
-      if (wts[k] > 0) {
-        cents[k][0] = sums[k * 3] / wts[k];
-        cents[k][1] = sums[k * 3 + 1] / wts[k];
-        cents[k][2] = sums[k * 3 + 2] / wts[k];
-      }
+    while (pal.length < 256) pal.push([0, 0, 0]);
+    return pal;
+  }
+  type Box = { lo: number; hi: number; axis: 0 | 1 | 2; score: number; wSum: number };
+  const calcBox = (lo: number, hi: number): Box => {
+    let r0 = 255, r1 = 0, g0 = 255, g1 = 0, b0 = 255, b1 = 0, ws = 0;
+    for (let i = lo; i < hi; i++) {
+      const c = bins[i]; ws += c.w;
+      if (c.r < r0) r0 = c.r; if (c.r > r1) r1 = c.r;
+      if (c.g < g0) g0 = c.g; if (c.g > g1) g1 = c.g;
+      if (c.b < b0) b0 = c.b; if (c.b > b1) b1 = c.b;
     }
+    const dr = (r1 - r0) * 1.4, dg = (g1 - g0) * 1.8, db = (b1 - b0) * 1.0;
+    const axis: 0 | 1 | 2 = dg >= dr && dg >= db ? 1 : dr >= db ? 0 : 2;
+    const span = Math.max(dr, dg, db);
+    const score = hi - lo < 2 ? -1 : span * Math.pow(ws, 0.35);
+    return { lo, hi, axis, score, wSum: ws };
+  };
+  const boxes: Box[] = [calcBox(0, n)];
+  while (boxes.length < 254) {
+    let bi = 0, bs = -1;
+    for (let i = 0; i < boxes.length; i++) {
+      if (boxes[i].score > bs) { bs = boxes[i].score; bi = i; }
+    }
+    if (bs <= 0) break;
+    const bx = boxes[bi];
+    const sub = bins.slice(bx.lo, bx.hi);
+    sub.sort((a, b) => (bx.axis === 0 ? a.r - b.r : bx.axis === 1 ? a.g - b.g : a.b - b.b));
+    for (let i = 0; i < sub.length; i++) bins[bx.lo + i] = sub[i];
+    let acc = 0, mid = bx.lo + 1;
+    for (let i = bx.lo; i < bx.hi - 1; i++) {
+      acc += bins[i].w;
+      if (acc >= bx.wSum * 0.5) { mid = i + 1; break; }
+    }
+    boxes[bi] = calcBox(bx.lo, mid);
+    boxes.push(calcBox(mid, bx.hi));
   }
-  for (let k = 0; k < need; k++) {
-    pal.push([Math.round(cents[k][0]), Math.round(cents[k][1]), Math.round(cents[k][2])]);
+  for (let i = 0; i < boxes.length; i++) {
+    let sr = 0, sg = 0, sb = 0, sw = 0;
+    for (let j = boxes[i].lo; j < boxes[i].hi; j++) {
+      const c = bins[j]; sr += c.r * c.w; sg += c.g * c.w; sb += c.b * c.w; sw += c.w;
+    }
+    pal.push([Math.round(sr / sw), Math.round(sg / sw), Math.round(sb / sw)]);
   }
+  while (pal.length < 256) pal.push([0, 0, 0]);
   return pal;
 }
-
-type Lut = { c1: Int16Array; c2: Int16Array; mix: Uint8Array };
-const LUTS = new WeakMap<number[][], Lut>();
-export function ditherFrameBlueNoise(
-  rgba: Uint8ClampedArray,
-  w: number,
-  h: number,
-  pal: number[][]
+export function ditherFrameFloydSteinberg(
+  rgba: Uint8ClampedArray, w: number, h: number, pal: number[][]
 ): Uint8Array {
-  let lut = LUTS.get(pal);
-  if (!lut) {
-    lut = { c1: new Int16Array(262144).fill(-1), c2: new Int16Array(262144), mix: new Uint8Array(262144) };
-    LUTS.set(pal, lut);
-  }
-  const { c1, c2, mix } = lut;
+  LUT_NEAR.fill(-1);
   const out = new Uint8Array(w * h);
-  const pLen = pal.length;
+  let cr = new Float32Array(w + 2), cg = new Float32Array(w + 2), cb = new Float32Array(w + 2);
+  let nr = new Float32Array(w + 2), ng = new Float32Array(w + 2), nb = new Float32Array(w + 2);
   for (let y = 0; y < h; y++) {
-    const row = (y & 7) << 3;
-    for (let x = 0; x < w; x++) {
-      const p = y * w + x;
-      const i = p << 2;
-      const r = rgba[i], g = rgba[i + 1], b = rgba[i + 2];
-      if (Math.abs(r - 18) <= 2 && Math.abs(g - 19) <= 2 && Math.abs(b - 23) <= 2) { out[p] = 0; continue; }
-      if (r >= 253 && g >= 253 && b >= 253) { out[p] = 1; continue; }
-      const key = ((r >> 2) << 12) | ((g >> 2) << 6) | (b >> 2);
-      if (c1[key] === -1) {
-        let b1 = 0, b2 = 0, d1 = 1e12, d2 = 1e12;
-        for (let k = 0; k < pLen; k++) {
-          const dr = r - pal[k][0], dg = g - pal[k][1], db = b - pal[k][2];
-          const d = dr * dr + dg * dg + db * db;
-          if (d < d1) { d2 = d1; b2 = b1; d1 = d; b1 = k; }
-          else if (d < d2) { d2 = d; b2 = k; }
+    nr.fill(0); ng.fill(0); nb.fill(0);
+    const rev = (y & 1) === 1;
+    const dir = rev ? -1 : 1;
+    for (let step = 0; step < w; step++) {
+      const x = rev ? w - 1 - step : step;
+      const xi = x + 1, p = y * w + x, i = p << 2;
+      const r0 = rgba[i], g0 = rgba[i + 1], b0 = rgba[i + 2];
+      if (Math.abs(r0 - 18) <= 1 && Math.abs(g0 - 19) <= 1 && Math.abs(b0 - 23) <= 1 && Math.abs(cr[xi]) < 2) { out[p] = 0; continue; }
+      if (r0 >= 254 && g0 >= 254 && b0 >= 254 && Math.abs(cr[xi]) < 2) { out[p] = 1; continue; }
+      const er0 = Math.max(-22, Math.min(22, cr[xi]));
+      const eg0 = Math.max(-22, Math.min(22, cg[xi]));
+      const eb0 = Math.max(-22, Math.min(22, cb[xi]));
+      const tr = Math.max(0, Math.min(255, r0 + er0)) | 0;
+      const tg = Math.max(0, Math.min(255, g0 + eg0)) | 0;
+      const tb = Math.max(0, Math.min(255, b0 + eb0)) | 0;
+      const key = ((tr >> 2) << 12) | ((tg >> 2) << 6) | (tb >> 2);
+      let best = LUT_NEAR[key];
+      if (best === -1) {
+        let bd = 1e12; best = 0;
+        for (let k = 0; k < 256; k++) {
+          const dr = tr - pal[k][0], dg = tg - pal[k][1], db = tb - pal[k][2];
+          const d = dr * dr * 2 + dg * dg * 4 + db * db;
+          if (d < bd) { bd = d; best = k; }
         }
-        const vx = pal[b2][0] - pal[b1][0];
-        const vy = pal[b2][1] - pal[b1][1];
-        const vz = pal[b2][2] - pal[b1][2];
-        const l2 = vx * vx + vy * vy + vz * vz;
-        const dot = (r - pal[b1][0]) * vx + (g - pal[b1][1]) * vy + (b - pal[b1][2]) * vz;
-        const t = l2 > 0 && l2 < 2400 ? Math.max(0, Math.min(1, dot / l2)) : 0;
-        c1[key] = b1; c2[key] = b2; mix[key] = Math.round(t * 64);
+        LUT_NEAR[key] = best;
       }
-      out[p] = mix[key] > BAYER8[row | (x & 7)] ? c2[key] : c1[key];
+      out[p] = best;
+      const qr = (tr - pal[best][0]) * 0.85;
+      const qg = (tg - pal[best][1]) * 0.85;
+      const qb = (tb - pal[best][2]) * 0.85;
+      cr[xi + dir] += qr * 0.4375; cg[xi + dir] += qg * 0.4375; cb[xi + dir] += qb * 0.4375;
+      nr[xi - dir] += qr * 0.1875; ng[xi - dir] += qg * 0.1875; nb[xi - dir] += qb * 0.1875;
+      nr[xi]       += qr * 0.3125; ng[xi]       += qg * 0.3125; nb[xi]       += qb * 0.3125;
+      nr[xi + dir] += qr * 0.0625; ng[xi + dir] += qg * 0.0625; nb[xi + dir] += qb * 0.0625;
     }
+    let tmp = cr; cr = nr; nr = tmp;
+    tmp = cg; cg = ng; ng = tmp;
+    tmp = cb; cb = nb; nb = tmp;
   }
   return out;
 }
