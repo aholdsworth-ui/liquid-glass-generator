@@ -6,6 +6,7 @@ import { PAGE_ASSETS, BG_ASSETS, BUTTON_ZONES, GFS_MOMENTUM_DRIVE_URL, ZoneRect 
 import { PanelShape, BackgroundTheme, STICKER_CATEGORIES, renderStandaloneGlassPanel, generateStandaloneGlassSvg, renderRefractedGlassPatch } from "@/lib/liquidGlassEngine";
 import { LoadedMedia, PanelInstance, loadUniversalMediaFile, getMediaFrameAt, renderFrameWithPanels, setActiveMediaRotation, exportMultiPanelSvg, exportCompositedMp4 } from "@/lib/mediaSupport";
 import { exportCompositedGif } from "@/lib/gifStudioEncoder";
+import { PanelResizeHandle, handleToCursor, hitTestPanelHandle, hitTestPanelsList, computePanelResize, drawPanelHandlesOnCtx, drawStagePanelsHandles } from "@/lib/panelResizeHelper";
 import { GFS_MOMENTUM_FOLDER_ID, DriveItem, getConfiguredGoogleClientId, getDriveAccessToken, listDriveFolderItems, downloadDriveFileDirect , MomentumDropzoneModal } from "@/lib/driveDirectPicker";
 import { RecentUploadItem, RecentCreationItem, getRecentUploads, getRecentCreations, loadBlobAsFile, deleteRecentUpload, saveRecentCreation, deleteRecentCreation, registerExportListener, notifyExportTriggered, onUploadsChanged } from "@/lib/historyStore";
 import { RecentUploadsModal, RecentCreationsModal, RecentCreationsNavButton } from "@/lib/HistoryModals";
@@ -95,10 +96,10 @@ export default function Page() {
   const bgStageCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const viewTransformRef = useRef({ scale: 1, ox: 0, oy: 0 });
   const dragRef = useRef<{
-    kind: "none" | "slide-panel" | "bg-panel" | "bg-pan" | "bg-corner" | "bg-rotate";
+    kind: "none" | "slide-panel" | "slide-resize" | "bg-panel-resize" | "bg-panel" | "bg-pan" | "bg-corner" | "bg-rotate";
     panelIdx?: number; corner?: "tl" | "tr" | "bl" | "br";
     dx?: number; dy?: number; anchorX?: number; anchorY?: number;
-    startScale?: number; startRot?: number; startAngle?: number; centerX?: number; centerY?: number; startDist?: number;
+    startScale?: number; resizeHandle?: PanelResizeHandle; startPanelX?: number; startPanelY?: number; startPanelW?: number; startPanelH?: number; startClickFx?: number; startClickFy?: number; startRot?: number; startAngle?: number; centerX?: number; centerY?: number; startDist?: number;
     startPanX?: number; startPanY?: number; startClickX?: number; startClickY?: number;
   }>({ kind: "none" });
 
@@ -152,6 +153,7 @@ export default function Page() {
         if (pw >= 24 && ph >= 24) {
           const patch = renderRefractedGlassPatch(bg, width, height, slidePos.x, slidePos.y, { width: pw, height: ph, shape: slideShape, theme, frostOpacity: slideOpacity / 100 });
           ctx.drawImage(patch, Math.round(slidePos.x - (patch.width - pw) / 2), Math.round(slidePos.y - (patch.height - ph) / 2));
+    drawPanelHandlesOnCtx(ctx, slidePos.x, slidePos.y, pw, ph, Math.max(width, height) / 430, dragRef.current.kind === "slide-resize", slideShape === "circle" ? `${pw} px \u2300` : `${pw} \u00D7 ${ph} px`);
         }
       }
       raf = requestAnimationFrame(render);
@@ -223,7 +225,8 @@ export default function Page() {
   const rhx = Math.max(18, Math.min(cw - 18, bcx + Math.sin(rad) * (bh / 2 + 26)));
   const rhy = Math.max(18, Math.min(ch - 18, bcy - Math.cos(rad) * (bh / 2 + 26)));
   rotHandleRef.current = { rhx, rhy, bcx, bcy, cw, ch, canvas: ctx.canvas };
-  const act = dragRef.current?.kind === "bg-rotate";
+  drawStagePanelsHandles(ctx, panels, pPanels, ox, oy, null, null, frameDims.width, frameDims.height, dragRef.current.kind === "bg-panel-resize" ? (dragRef.current.panelIdx ?? -1) : -1);
+    const act = dragRef.current?.kind === "bg-rotate";
   ctx.save();
   ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(rhx, rhy);
   ctx.strokeStyle = "#121317"; ctx.lineWidth = 1.5; ctx.stroke();
@@ -355,6 +358,7 @@ const fw = frameDims.width, fh = frameDims.height, sw = media.width * mediaScale
       { key: "bl", cx: ox + mx * vs, cy: oy + (my + sh) * vs, ax: mx + sw, ay: my },
       { key: "br", cx: ox + (mx + sw) * vs, cy: oy + (my + sh) * vs, ax: mx, ay: my },
     ];
+    { const __ht = hitTestPanelsList(panels, fx, fy, frameDims.width, frameDims.height, bgStageCanvasRef.current!.getBoundingClientRect()); if (__ht && __ht.handle) { const __p = panels[__ht.idx]; dragRef.current = { kind: "bg-panel-resize", panelIdx: __ht.idx, resizeHandle: __ht.handle, startPanelX: __p.x, startPanelY: __p.y, startPanelW: __ht.pw, startPanelH: __ht.ph, startClickFx: fx, startClickFy: fy }; e.currentTarget.setPointerCapture(e.pointerId); setPanels((prev: any) => [...prev]); return; } }
     for (const c of corners) {
       const hcx = Math.max(9, Math.min(cEl.width - 9, c.cx)), hcy = Math.max(9, Math.min(cEl.height - 9, c.cy));
       if (Math.hypot(sx - hcx, sy - hcy) <= 16) {
@@ -389,11 +393,13 @@ const fw = frameDims.width, fh = frameDims.height, sw = media.width * mediaScale
     }
     rotHandleRef.current.canvas.style.cursor = Math.hypot(__cx - rotHandleRef.current.rhx, __cy - rotHandleRef.current.rhy) <= 18 ? "grab" : "";
   }
-    if (dragRef.current.kind === "none" || !media || !bgStageCanvasRef.current) return;
+    if (!media || !bgStageCanvasRef.current) return;
     const cEl = bgStageCanvasRef.current, rect = cEl.getBoundingClientRect();
     const sx = (e.clientX - rect.left) * (cEl.width / rect.width), sy = (e.clientY - rect.top) * (cEl.height / rect.height);
     const { scale: vs, ox, oy } = viewTransformRef.current;
     const fx = (sx - ox) / vs, fy = (sy - oy) / vs;
+    if (dragRef.current.kind === "none") { const __ht = hitTestPanelsList(panels, fx, fy, frameDims.width, frameDims.height, bgStageCanvasRef.current.getBoundingClientRect()); if (__ht) bgStageCanvasRef.current.style.cursor = __ht.handle ? handleToCursor(__ht.handle) : "move"; return; }
+    if (dragRef.current.kind === "bg-panel-resize" && dragRef.current.resizeHandle) { const __idx = dragRef.current.panelIdx ?? 0; const __cp = panels[__idx]; if (__cp) { const __nx = computePanelResize(dragRef.current.resizeHandle, dragRef.current.startPanelX ?? __cp.x, dragRef.current.startPanelY ?? __cp.y, dragRef.current.startPanelW ?? 400, dragRef.current.startPanelH ?? 200, fx - (dragRef.current.startClickFx ?? fx), fy - (dragRef.current.startClickFy ?? fy), __cp.shape, e.shiftKey); bgStageCanvasRef.current.style.cursor = handleToCursor(dragRef.current.resizeHandle); setPanels((prev: any) => prev.map((it: any, ii: number) => ii === __idx ? { ...it, x: __nx.x, y: __nx.y, widthInput: String(__nx.w), heightInput: String(__nx.h) } : it)); } return; }
     if (dragRef.current.kind === "bg-corner") {
       const { anchorX = 0, anchorY = 0, corner, startScale = 1, startDist = 100 } = dragRef.current;
       const curDist = Math.max(8, Math.hypot(fx - anchorX, fy - anchorY));
@@ -415,7 +421,7 @@ const fw = frameDims.width, fh = frameDims.height, sw = media.width * mediaScale
   };
 
   const onBgStageUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (dragRef.current.kind !== "none") { dragRef.current = { kind: "none" }; try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {} }
+    if (dragRef.current.kind !== "none") { const __w2 = dragRef.current.kind === "bg-panel-resize"; dragRef.current = { kind: "none" }; if (__w2) setPanels((prev: any) => [...prev]); try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {} }
   };
 
   const downloadBlob = (blob: Blob, filename: string) => {
@@ -595,16 +601,16 @@ const fw = frameDims.width, fh = frameDims.height, sw = media.width * mediaScale
                     const c = slideCanvasRef.current; if (!c) return;
                     const r = c.getBoundingClientRect(), fx = (e.clientX - r.left) * (c.width / r.width), fy = (e.clientY - r.top) * (c.height / r.height);
                     const pw = Math.max(24, parseInt(slideW || "0", 10) || 0), ph = slideShape === "circle" ? pw : Math.max(24, parseInt(slideH || "0", 10) || 0);
-                    dragRef.current = { kind: "slide-panel", dx: fx >= slidePos.x && fx <= slidePos.x + pw ? fx - slidePos.x : pw / 2, dy: fy >= slidePos.y && fy <= slidePos.y + ph ? fy - slidePos.y : ph / 2 };
+                    const __c1 = slideCanvasRef.current!; const __r1 = __c1.getBoundingClientRect(); const __h1 = hitTestPanelHandle(slidePos.x, slidePos.y, pw, ph, fx, fy, 12 * (__c1.width / Math.max(1, __r1.width || 420))); if (__h1) { dragRef.current = { kind: "slide-resize", resizeHandle: __h1, startPanelX: slidePos.x, startPanelY: slidePos.y, startPanelW: pw, startPanelH: ph, startClickFx: fx, startClickFy: fy }; e.currentTarget.setPointerCapture(e.pointerId); setSlidePos((prev: any) => ({ ...prev })); return; } dragRef.current = { kind: "slide-panel", dx: fx >= slidePos.x && fx <= slidePos.x + pw ? fx - slidePos.x : pw / 2, dy: fy >= slidePos.y && fy <= slidePos.y + ph ? fy - slidePos.y : ph / 2 };
                     e.currentTarget.setPointerCapture(e.pointerId);
                   }}
                   onPointerMove={(e) => {
-                    if (dragRef.current.kind !== "slide-panel" || !slideCanvasRef.current) return;
+                    if (!slideCanvasRef.current) return;
                     const c = slideCanvasRef.current, r = c.getBoundingClientRect(), fx = (e.clientX - r.left) * (c.width / r.width), fy = (e.clientY - r.top) * (c.height / r.height);
                     const pw = Math.max(24, parseInt(slideW || "0", 10) || 0), ph = slideShape === "circle" ? pw : Math.max(24, parseInt(slideH || "0", 10) || 0);
-                    setSlidePos({ x: Math.max(-pw * 0.25, Math.min(c.width - pw * 0.75, fx - (dragRef.current.dx || 0))), y: Math.max(-ph * 0.25, Math.min(c.height - ph * 0.75, fy - (dragRef.current.dy || 0))) });
+                    if (dragRef.current.kind === "none") { const __r1 = slideCanvasRef.current.getBoundingClientRect(); const __h1 = hitTestPanelHandle(slidePos.x, slidePos.y, pw, ph, fx, fy, 12 * (slideCanvasRef.current.width / Math.max(1, __r1.width || 420))); slideCanvasRef.current.style.cursor = __h1 ? handleToCursor(__h1) : (fx >= slidePos.x && fx <= slidePos.x + pw && fy >= slidePos.y && fy <= slidePos.y + ph ? "move" : "grab"); return; } if (dragRef.current.kind === "slide-resize" && dragRef.current.resizeHandle) { const __nx = computePanelResize(dragRef.current.resizeHandle, dragRef.current.startPanelX ?? slidePos.x, dragRef.current.startPanelY ?? slidePos.y, dragRef.current.startPanelW ?? pw, dragRef.current.startPanelH ?? ph, fx - (dragRef.current.startClickFx ?? fx), fy - (dragRef.current.startClickFy ?? fy), slideShape, e.shiftKey); slideCanvasRef.current.style.cursor = handleToCursor(dragRef.current.resizeHandle); setSlidePos({ x: __nx.x, y: __nx.y }); setSlideW(String(__nx.w)); setSlideH(String(__nx.h)); return; } if (dragRef.current.kind !== "slide-panel") return; setSlidePos({ x: Math.max(-pw * 0.25, Math.min(c.width - pw * 0.75, fx - (dragRef.current.dx || 0))), y: Math.max(-ph * 0.25, Math.min(c.height - ph * 0.75, fy - (dragRef.current.dy || 0))) });
                   }}
-                  onPointerUp={(e) => { dragRef.current = { kind: "none" }; try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {} }}
+                  onPointerUp={(e) => { const __w1 = dragRef.current.kind === "slide-resize"; dragRef.current = { kind: "none" }; if (__w1) setSlidePos((prev: any) => ({ ...prev })); try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {} }}
                   className="max-w-full max-h-full object-contain shadow-sm cursor-grab active:cursor-grabbing"
                 />
               </div>
